@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from pathlib import Path
+
+
+DEFAULT_DB_PATH = Path(".codex/state/review_state.sqlite")
+EXPECTED_SCHEMA_VERSION = "1"
+
+
+def resolve_db_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("REVIEW_STATE_PATH must use forward slashes.")
+
+    db_path = Path(path_raw)
+    if db_path.is_absolute() or ".." in db_path.parts:
+        raise SystemExit("REVIEW_STATE_PATH must stay inside the project under .codex/state/.")
+
+    if tuple(db_path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("REVIEW_STATE_PATH must stay inside .codex/state/.")
+
+    return db_path
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    db_path = root / resolve_db_path(os.environ.get("REVIEW_STATE_PATH", DEFAULT_DB_PATH.as_posix()))
+
+    if not db_path.exists():
+        raise SystemExit("Review state is missing. Run `uv run python tools/init_review_state.py`.")
+
+    connection = sqlite3.connect(db_path)
+    try:
+        version_row = connection.execute(
+            "SELECT metadata_value FROM schema_metadata WHERE metadata_key = 'schema_version'"
+        ).fetchone()
+        category_count = connection.execute("SELECT COUNT(*) FROM review_category").fetchone()[0]
+    finally:
+        connection.close()
+
+    if version_row is None or version_row[0] != EXPECTED_SCHEMA_VERSION:
+        raise SystemExit("Review-state schema version is invalid. Reinitialize the local state.")
+    if category_count == 0:
+        raise SystemExit("Review-state categories are missing. Reinitialize the local state.")
+
+    print(f"Verified review state at {db_path}")
+
+
+if __name__ == "__main__":
+    main()

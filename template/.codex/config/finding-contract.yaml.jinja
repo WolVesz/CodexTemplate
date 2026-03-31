@@ -1,0 +1,58 @@
+finding_contract:
+  authority: .codex/config/finding-contract.yaml
+  activation_mode: any_trigger_or_matching_path
+  required_fields:
+    id: Unique stable identifier for the finding; persist this as the durable finding key across review passes.
+    reviewer: Reviewer identifier from `.codex/config/reviewers.yaml`.
+    severity: One of low, medium, high, critical.
+    category: Normalized category from the registered category vocabulary.
+    title: Short actionable title.
+    description: Concise explanation of the issue.
+    file_path: Repository-relative file path containing the evidence.
+    evidence: Concrete evidence for the issue.
+    normalized_evidence: Stable deduplication key derived from the evidence.
+    expected_behavior: What should happen instead.
+    observed_behavior: What currently happens.
+    confidence: Number between 0.0 and 1.0.
+    review_mode: delta or full.
+    suggested_fix: Actionable next step.
+    missing_test: Boolean indicating whether test coverage is missing.
+    model_name: Resolved reviewer model identifier used for this finding.
+    prompt_version: Prompt path plus checksum, git revision, or template version tag.
+  optional_fields:
+    line_start: First relevant line number when available.
+    line_end: Last relevant line number when available.
+    scope_anchor: Scope clause key when the reviewer can tie the finding to scope.
+    reproduction_steps: Minimal repro when behavior is not obvious from static evidence.
+  validation_rules:
+    line_numbers_required_for:
+      - static file findings with exact evidence
+    scope_anchor_required_for:
+      - findings explicitly claimed to be in-scope by the reviewer
+  adjudication_outcomes:
+    - confirmed
+    - rejected
+    - duplicate
+    - out-of-scope
+    - fixed
+    - reopened
+  example:
+    id: test-engineer-001
+    reviewer: test-engineer
+    severity: high
+    category: test-gap
+    title: Missing regression test for scope-memory bootstrap guard
+    description: The init script guards path traversal but no test asserts the rejection behavior.
+    file_path: tools/init_scope_memory.py
+    line_start: 16
+    evidence: The script rejects absolute and parent-traversal paths, but no regression test covers those branches.
+    normalized_evidence: tools/init_scope_memory.py:path-guard-regression
+    expected_behavior: Bootstrap path guards stay enforced over time.
+    observed_behavior: A future change could remove the guard without a dedicated regression signal.
+    confidence: 0.89
+    review_mode: delta
+    scope_anchor: scope-memory-safety
+    suggested_fix: Add a regression test or config assertion that covers invalid memory paths.
+    missing_test: true
+    model_name: gpt-5.4
+    prompt_version: qa-test-engineer.md@template-v0.1.0

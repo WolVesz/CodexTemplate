@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from pathlib import Path
+
+import yaml
+
+
+DEFAULT_DB_PATH = Path(".codex/state/review_state.sqlite")
+EXPECTED_SCHEMA_VERSION = "1"
+
+
+def apply_migrations(connection: sqlite3.Connection, migrations_dir: Path) -> None:
+    if not migrations_dir.exists():
+        return
+
+    for migration_path in sorted(migrations_dir.glob("*.sql")):
+        migration_id = migration_path.stem
+        existing = connection.execute(
+            "SELECT 1 FROM migration_history WHERE migration_id = ?",
+            (migration_id,),
+        ).fetchone()
+        if existing is not None:
+            continue
+
+        connection.executescript(migration_path.read_text(encoding="utf-8"))
+        connection.execute(
+            "INSERT INTO migration_history (migration_id, description) VALUES (?, ?)",
+            (migration_id, f"Applied migration file {migration_path.name}"),
+        )
+
+
+def resolve_db_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("REVIEW_STATE_PATH must use forward slashes.")
+
+    db_path = Path(path_raw)
+    if db_path.is_absolute() or ".." in db_path.parts:
+        raise SystemExit("REVIEW_STATE_PATH must stay inside the project under .codex/state/.")
+
+    if tuple(db_path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("REVIEW_STATE_PATH must stay inside .codex/state/.")
+
+    return db_path
+
+
+def sync_review_categories(connection: sqlite3.Connection, root: Path) -> None:
+    reviewers_path = root / ".codex/config/reviewers.yaml"
+    reviewers_config = yaml.safe_load(reviewers_path.read_text(encoding="utf-8"))
+    reviewers = reviewers_config["reviewers"]
+
+    for reviewer in reviewers:
+        reviewer_id = reviewer["id"]
+        perspective = reviewer["perspective"]
+        for category in reviewer["owned_categories"]:
+            connection.execute(
+                """
+                INSERT INTO review_category (category_key, domain, description)
+                VALUES (?, ?, ?)
+                ON CONFLICT(category_key) DO UPDATE SET
+                    domain = excluded.domain,
+                    description = excluded.description
+                """,
+                (
+                    category,
+                    reviewer_id,
+                    f"{perspective} Owned by reviewer '{reviewer_id}'.",
+                ),
+            )
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    schema_path = root / ".codex/memory/review_state_schema.sql"
+    migrations_dir = root / ".codex/memory/review_state_migrations"
+    configured_path = os.environ.get("REVIEW_STATE_PATH", DEFAULT_DB_PATH.as_posix())
+    db_path = root / resolve_db_path(configured_path)
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL;")
+        connection.executescript(schema_path.read_text(encoding="utf-8"))
+        apply_migrations(connection, migrations_dir)
+        sync_review_categories(connection, root)
+
+        version_row = connection.execute(
+            "SELECT metadata_value FROM schema_metadata WHERE metadata_key = 'schema_version'"
+        ).fetchone()
+        if version_row is None or version_row[0] != EXPECTED_SCHEMA_VERSION:
+            raise SystemExit(
+                "Review-state bootstrap failed to verify the expected schema version."
+            )
+    finally:
+        connection.close()
+
+    print(f"Initialized review state at {db_path}")
+
+
+if __name__ == "__main__":
+    main()

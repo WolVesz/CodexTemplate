@@ -1,0 +1,34 @@
+# Quality Policy
+
+The authoritative machine-readable quality-gate definition lives in `.codex/config/quality-gates.yaml`.
+
+These gates must pass before the QA reviewer loop begins:
+
+1. `uv run python tools/verify_scope_memory.py`
+2. `uv run python tools/verify_review_state.py`
+3. `uv run python tools/run_pre_commit.py`
+4. `uv run ruff check .`
+5. `uv run ruff format --check .`
+6. `uv run mypy src tests tools`
+7. `uv run python tools/run_eval_gate.py`
+8. `uv run python tools/run_data_contract_gate.py`
+9. `uv run python tools/run_full_test_suite.py`
+
+Bootstrap-only commands:
+- `uv run python tools/init_scope_memory.py`
+- `uv run python tools/init_review_state.py`
+- `uv run python tools/install_pre_commit.py`
+
+Quality rules:
+- branch coverage must stay at or above `{{ coverage_threshold }}`
+- tests must cover normal paths, failure paths, and edge cases introduced by the change
+- reviewers do not replace local quality gates; they operate after the local gate passes
+- if a remediation pass adds a new code path, add or update tests in the same pass
+- run `uv lock` during project bootstrap and commit `uv.lock` whenever dependencies change so local and CI environments stay aligned
+- `eval` and `data_contract` gate wrappers always run, but they use `project_surfaces` to decide whether to execute starter checks or require real project-specific coverage
+- replace the starter-level fixtures with real prompt, model, schema, or compatibility checks as soon as the project adds those surfaces
+
+Blocked-state rules:
+- if a required tool, dependency, or secret is missing, record the exact blocker and pause the review loop
+- if a test is flaky, rerun it once and escalate if it still fails
+- do not guess past environment failures; capture the evidence and escalate instead

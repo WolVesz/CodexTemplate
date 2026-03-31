@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "tools/derive_review_triggers.py"
+
+
+def test_trigger_derivation_config_has_known_triggers() -> None:
+    config = yaml.safe_load(
+        (ROOT / ".codex/config/trigger-derivation.yaml").read_text(encoding="utf-8")
+    )["trigger_derivation"]
+    review_scope = yaml.safe_load(
+        (ROOT / ".codex/config/review-scope.yaml").read_text(encoding="utf-8")
+    )["review_scope"]
+
+    known_triggers = set(review_scope["known_change_triggers"])
+    for section in ("path_rules", "metadata_rules", "derived_rules"):
+        for rule in config[section]:
+            assert rule["trigger"] in known_triggers
+
+
+def test_trigger_derivation_script_emits_expected_triggers() -> None:
+    payload = {
+        "changed_paths": ["uv.lock", ".github/workflows/ci.yml", "contracts/schema.json", "db/schema.sql"],
+        "metadata": {"files_changed": 7, "total_changed_lines": 420, "labels": ["milestone"]},
+    }
+
+    with TemporaryDirectory() as temp_dir:
+        payload_path = Path(temp_dir) / "payload.json"
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), str(payload_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode == 0
+    triggers = set(json.loads(result.stdout))
+    assert {
+        "lockfile_changed",
+        "ci_workflow_changed",
+        "data_contract_changed",
+        "database_schema_changed",
+        "files_changed_over_threshold",
+        "lines_changed_over_threshold",
+        "explicit_milestone_marker",
+    }.issubset(triggers)
+
+
+def test_trigger_derivation_normalizes_windows_paths() -> None:
+    payload = {
+        "changed_paths": ["tools\\runner.py", "tests\\nested\\agent_eval.py"],
+        "metadata": {"files_changed": 2, "total_changed_lines": 10, "labels": []},
+    }
+
+    with TemporaryDirectory() as temp_dir:
+        payload_path = Path(temp_dir) / "payload.json"
+        payload_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), str(payload_path)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode == 0
+    triggers = set(json.loads(result.stdout))
+    assert "runtime_behavior_changed" in triggers
+    assert "evaluation_logic_changed" in triggers

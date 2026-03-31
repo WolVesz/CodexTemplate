@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import fnmatch
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+def load_config(root: Path) -> dict[str, Any]:
+    config_path = root / ".codex/config/trigger-derivation.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))["trigger_derivation"]
+
+
+def matches_any(path: str, patterns: list[str]) -> bool:
+    normalized = path.replace("\\", "/")
+    return any(fnmatch.fnmatch(normalized, pattern) for pattern in patterns)
+
+
+def apply_metadata_rule(rule: dict[str, Any], metadata: dict[str, Any]) -> bool:
+    field = rule["field"]
+    operator = rule["operator"]
+    value = metadata.get(field)
+
+    if operator == "gt":
+        return value is not None and value > rule["value"]
+    if operator == "contains_any":
+        return value is not None and any(item in value for item in rule["value"])
+    raise SystemExit(f"Unsupported operator: {operator}")
+
+
+def derive_triggers(config: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    changed_paths = payload.get("changed_paths", [])
+    metadata = payload.get("metadata", {})
+    triggers: set[str] = set()
+
+    for rule in config["path_rules"]:
+        if any(matches_any(path, rule["matches_any"]) for path in changed_paths):
+            triggers.add(rule["trigger"])
+
+    for rule in config["metadata_rules"]:
+        if apply_metadata_rule(rule, metadata):
+            triggers.add(rule["trigger"])
+
+    for rule in config["derived_rules"]:
+        if any(matches_any(path, rule["when_any"]) for path in changed_paths):
+            triggers.add(rule["trigger"])
+
+    return sorted(triggers)
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: uv run python tools/derive_review_triggers.py <payload.json>")
+
+    root = Path(__file__).resolve().parents[1]
+    payload_path = Path(sys.argv[1])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    triggers = derive_triggers(load_config(root), payload)
+    print(json.dumps(triggers))
+
+
+if __name__ == "__main__":
+    main()

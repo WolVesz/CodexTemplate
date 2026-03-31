@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "tools/init_review_state.py"
+
+
+def cleanup_database_files(db_path: Path) -> None:
+    paths = (
+        db_path,
+        db_path.with_name(f"{db_path.name}-wal"),
+        db_path.with_name(f"{db_path.name}-shm"),
+    )
+    for path in paths:
+        if path.exists():
+            path.unlink()
+
+
+def run_init(review_state_path: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["REVIEW_STATE_PATH"] = review_state_path
+    return subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_init_review_state_creates_database() -> None:
+    db_path = ROOT / ".codex/state/test_review_state.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        result = run_init(".codex/state/test_review_state.sqlite")
+
+        assert result.returncode == 0
+        assert db_path.exists()
+
+        connection = sqlite3.connect(db_path)
+        try:
+            category_count = connection.execute("SELECT COUNT(*) FROM review_category").fetchone()[0]
+        finally:
+            connection.close()
+
+        assert category_count > 0
+    finally:
+        cleanup_database_files(db_path)
+
+
+def test_init_review_state_rejects_invalid_paths() -> None:
+    traversal = run_init("../outside.sqlite")
+    backslashes = run_init(".codex\\state\\bad.sqlite")
+
+    assert traversal.returncode != 0
+    assert "must stay inside the project" in traversal.stderr or (
+        "must stay inside the project" in traversal.stdout
+    )
+    assert backslashes.returncode != 0
+    assert "must use forward slashes" in backslashes.stderr or (
+        "must use forward slashes" in backslashes.stdout
+    )
+
+
+def test_init_review_state_fails_on_schema_version_mismatch() -> None:
+    db_path = ROOT / ".codex/state/test_review_state_mismatch.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        first = run_init(".codex/state/test_review_state_mismatch.sqlite")
+        assert first.returncode == 0
+
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute(
+                "UPDATE schema_metadata SET metadata_value = '0' "
+                "WHERE metadata_key = 'schema_version'"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        second = run_init(".codex/state/test_review_state_mismatch.sqlite")
+        assert second.returncode != 0
+        assert "expected schema version" in second.stderr or (
+            "expected schema version" in second.stdout
+        )
+    finally:
+        cleanup_database_files(db_path)

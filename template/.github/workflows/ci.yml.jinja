@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    runs-on: {% raw %}${{ matrix.os }}{% endraw %}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "{{ python_version }}"
+
+      - name: Install dependencies
+        run: python tools/install_dev_dependencies.py
+
+      - name: Initialize scope memory
+        run: uv run python tools/init_scope_memory.py
+
+      - name: Initialize review state
+        run: uv run python tools/init_review_state.py
+
+      - name: Pre-commit
+        run: uv run python tools/run_pre_commit.py
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Format check
+        run: uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy src tests tools
+
+      - name: Eval gate
+        run: uv run python tools/run_eval_gate.py
+
+      - name: Data contract gate
+        run: uv run python tools/run_data_contract_gate.py
+
+      - name: Tests
+        run: uv run python tools/run_full_test_suite.py
+
+  lightning-optional:
+    if: {% raw %}${{ vars.LIGHTNING_TELEMETRY_ENABLED == 'true' || vars.AGENT_LIGHTNING_ENABLED == 'true' }}{% endraw %}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "{{ python_version }}"
+
+      - name: Install optional Lightning dependencies
+        run: python tools/install_dev_dependencies.py --group lightning
+
+      - name: Initialize optional Lightning telemetry
+        run: uv run python tools/init_lightning_telemetry.py

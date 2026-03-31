@@ -1,0 +1,147 @@
+name: Template Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  render-via-helper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      - name: Generate project via helper
+        run: python tools/create_project.py ../smoke-helper-project
+
+      - name: Verify helper rejects template root
+        run: >-
+          python -c "import subprocess, sys; result = subprocess.run([sys.executable, 'tools/create_project.py', '.'], check=False); raise SystemExit(0 if result.returncode != 0 else 1)"
+
+      - name: Verify helper rejects non-empty destination
+        run: >-
+          python -c "from pathlib import Path; import subprocess, sys; target = Path('../smoke-helper-existing'); target.mkdir(exist_ok=True); (target / 'keep.txt').write_text('x', encoding='utf-8'); result = subprocess.run([sys.executable, 'tools/create_project.py', str(target)], check=False); raise SystemExit(0 if result.returncode != 0 else 1)"
+
+      - name: Verify helper bootstrap created venv
+        run: python -c "from pathlib import Path; assert Path('../smoke-helper-project/.venv').exists()"
+
+      - name: Run helper-generated project tests
+        run: uv run python tools/run_full_test_suite.py
+        working-directory: ../smoke-helper-project
+
+  render-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      - name: Install Copier
+        run: python -m pip install "copier>=9.0.0"
+
+      - name: Render template
+        run: copier copy --defaults --trust . smoke-test-project
+
+      - name: Verify bootstrap created venv
+        run: python -c "from pathlib import Path; assert Path('smoke-test-project/.venv').exists()"
+
+      - name: Run generated project quality gates
+        run: uv run python tools/run_pre_commit.py
+        working-directory: smoke-test-project
+
+      - name: Run generated project lint
+        run: uv run ruff check .
+        working-directory: smoke-test-project
+
+      - name: Run generated project format check
+        run: uv run ruff format --check .
+        working-directory: smoke-test-project
+
+      - name: Run generated project type check
+        run: uv run mypy src tests tools
+        working-directory: smoke-test-project
+
+      - name: Run generated project eval gate
+        run: uv run python tools/run_eval_gate.py
+        working-directory: smoke-test-project
+
+      - name: Run generated project data contract gate
+        run: uv run python tools/run_data_contract_gate.py
+        working-directory: smoke-test-project
+
+      - name: Run generated project tests
+        run: uv run python tools/run_full_test_suite.py
+        working-directory: smoke-test-project
+
+  render-custom-inputs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.14"
+
+      - name: Install Copier
+        run: python -m pip install "copier>=9.0.0"
+
+      - name: Render template with custom answers
+        run: >-
+          copier copy --trust
+          -d project_name="Custom Scope Loop"
+          -d distribution_name="custom-scope-loop"
+          -d package_name="custom_scope_loop"
+          -d project_description="Custom scope loop template"
+          -d author_name="Template Team"
+          -d python_version="3.14"
+          -d coverage_threshold=96
+          -d scope_memory_path=".codex/state/custom_scope_memory.sqlite"
+          . smoke-test-custom
+
+      - name: Verify bootstrap created venv
+        run: python -c "from pathlib import Path; assert Path('smoke-test-custom/.venv').exists()"
+
+      - name: Run generated project tests
+        run: uv run python tools/run_eval_gate.py && uv run python tools/run_data_contract_gate.py && uv run python tools/run_full_test_suite.py
+        working-directory: smoke-test-custom

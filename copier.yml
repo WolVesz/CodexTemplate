@@ -1,0 +1,112 @@
+_min_copier_version: "9.0.0"
+_subdirectory: template
+_templates_suffix: .jinja
+_answers_file: .copier-answers.yml
+_message_before_copy: |
+  This template runs trusted post-copy bootstrap tasks.
+
+  If the destination directory already exists, Copier will render into it.
+  For safer first-time generation, prefer `python tools/create_project.py <destination>` from the template repo.
+_tasks:
+  - command: uv python install {{ python_version }}
+    when: "{{ _copier_operation == 'copy' }}"
+  - command: uv run --python {{ python_version }} python tools/install_dev_dependencies.py --bootstrap --python-version {{ python_version }}
+    when: "{{ _copier_operation == 'copy' }}"
+  - command: uv run python tools/init_scope_memory.py
+    when: "{{ _copier_operation == 'copy' }}"
+  - command: uv run python tools/init_review_state.py
+    when: "{{ _copier_operation == 'copy' }}"
+  - command: uv run python tools/install_pre_commit.py
+    when: "{{ _copier_operation == 'copy' }}"
+_message_after_copy: |
+  Your project "{{ project_name }}" has been created.
+
+  Copier post-copy tasks already attempted to:
+  - install Python {{ python_version }} via uv
+  - create `.venv`
+  - install dev dependencies
+  - initialize scope and review state
+  - install pre-commit hooks if this project already has a `.git` directory
+
+  Next steps:
+  1. cd {{ _copier_conf.dst_path }}
+  2. uv run python tools/run_full_test_suite.py
+  3. uv run python tools/run_pre_commit.py
+
+project_name:
+  type: str
+  help: Human-friendly project name.
+  default: CodexTemplate
+  validator: >-
+    {% if '\n' in project_name or '\r' in project_name or '"' in project_name or '\\' in project_name %}
+    project_name cannot contain quotes, backslashes, or newlines.
+    {% endif %}
+
+distribution_name:
+  type: str
+  help: Python distribution name used in `pyproject.toml`.
+  default: "{{ project_name|lower|replace(' ', '-')|replace('_', '-') }}"
+  validator: >-
+    {% if not (distribution_name | regex_search('^[a-z][a-z0-9-]*$')) %}
+    distribution_name must start with a lowercase letter and then use only lowercase letters, digits, and dashes.
+    {% endif %}
+
+package_name:
+  type: str
+  help: Python package name created under `src/`.
+  default: "{{ distribution_name|replace('-', '_') }}"
+  validator: >-
+    {% if not (package_name | regex_search('^[a-z_][a-z0-9_]*$')) %}
+    package_name must be a valid lowercase Python package identifier using letters, digits, and underscores.
+    {% elif package_name | regex_search('^(False|None|True|and|as|assert|async|await|break|case|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|match|nonlocal|not|or|pass|raise|return|try|while|with|yield)$') %}
+    package_name cannot be a Python keyword.
+    {% endif %}
+
+project_description:
+  type: str
+  help: One-line description for the generated project.
+  default: Scope-governed Codex project with config-driven QA review loops.
+  validator: >-
+    {% if '\n' in project_description or '\r' in project_description or '"' in project_description or '\\' in project_description %}
+    project_description cannot contain quotes, backslashes, or newlines.
+    {% endif %}
+
+author_name:
+  type: str
+  help: Primary author or team name.
+  default: Your Team
+  validator: >-
+    {% if '\n' in author_name or '\r' in author_name or '"' in author_name or '\\' in author_name %}
+    author_name cannot contain quotes, backslashes, or newlines.
+    {% endif %}
+
+python_version:
+  type: str
+  help: Supported Python version.
+  default: "3.14"
+  validator: >-
+    {% if not (python_version | regex_search('^[0-9]+\.[0-9]+$')) %}
+    python_version must use major.minor format such as 3.14.
+    {% elif python_version.split('.')[0] | int != 3 or python_version.split('.')[1] | int < 11 %}
+    python_version must be 3.11 or newer.
+    {% endif %}
+
+coverage_threshold:
+  type: int
+  help: Minimum branch coverage percentage. Use 96 or higher to satisfy >95%.
+  default: 96
+  validator: >-
+    {% if coverage_threshold < 96 %}
+    coverage_threshold must be 96 or higher to enforce >95% coverage.
+    {% endif %}
+
+scope_memory_path:
+  type: str
+  help: Relative path to the SQLite scope-memory database under `.codex/state/`.
+  default: .codex/state/scope_memory.sqlite
+  validator: >-
+    {% if not (scope_memory_path | regex_search('^\.codex/state/[A-Za-z0-9._/-]+\.sqlite$')) %}
+    scope_memory_path must stay under .codex/state/, use forward slashes, and end with .sqlite.
+    {% elif scope_memory_path | regex_search('(^|/)\.\.(/|$)') %}
+    scope_memory_path cannot traverse outside the project root.
+    {% endif %}

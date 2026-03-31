@@ -1,0 +1,90 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TOOLING_FILES = {
+    "derive_review_triggers.py",
+    "export_lightning_dataset.py",
+    "init_lightning_telemetry.py",
+    "init_review_state.py",
+    "init_scope_memory.py",
+    "install_dev_dependencies.py",
+    "install_pre_commit.py",
+    "purge_lightning_telemetry.py",
+    "record_lightning_trace.py",
+    "run_data_contract_gate.py",
+    "run_eval_gate.py",
+    "run_full_test_suite.py",
+    "verify_review_state.py",
+    "verify_scope_memory.py",
+}
+EVAL_TOKENS = (
+    "agent",
+    "classif",
+    "embed",
+    "feature",
+    "inference",
+    "metric",
+    "model",
+    "pipeline",
+    "predict",
+    "prompt",
+    "rank",
+    "recommend",
+    "retrieve",
+    "score",
+    "threshold",
+)
+
+
+def load_surfaces() -> dict[str, object]:
+    path = ROOT / ".codex/config/project-surfaces.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["project_surfaces"]
+
+
+def discover_eval_surface_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for path in (ROOT / "src").rglob("*.py"):
+        relative_path = path.relative_to(ROOT).as_posix().lower()
+        if path.name != "__init__.py" and any(token in relative_path for token in EVAL_TOKENS):
+            candidates.append(path)
+
+    tools_root = ROOT / "tools"
+    if tools_root.exists():
+        for path in tools_root.rglob("*.py"):
+            if path.name in DEFAULT_TOOLING_FILES:
+                continue
+            relative_path = path.relative_to(ROOT).as_posix().lower()
+            if any(token in relative_path for token in EVAL_TOKENS):
+                candidates.append(path)
+
+    return candidates
+
+
+def main() -> None:
+    surfaces = load_surfaces()
+    candidates = discover_eval_surface_candidates()
+
+    if candidates and not (surfaces["has_model_or_scoring_logic"] or surfaces["has_prompt_logic"]):
+        joined = ", ".join(path.as_posix() for path in candidates[:5])
+        raise SystemExit(
+            "Detected potential eval-relevant project surfaces but the surface flags are still false. "
+            f"Update .codex/config/project-surfaces.yaml. Examples: {joined}"
+        )
+
+    command = [sys.executable, "-m", "pytest", "tests/test_eval_placeholder.py", "--no-cov"]
+
+    if surfaces["has_model_or_scoring_logic"] or surfaces["has_prompt_logic"]:
+        command = [sys.executable, "-m", "pytest", "-m", "eval", "--no-cov"]
+
+    raise SystemExit(subprocess.call(command, cwd=ROOT))
+
+
+if __name__ == "__main__":
+    main()

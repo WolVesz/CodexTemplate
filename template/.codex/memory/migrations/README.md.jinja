@@ -1,0 +1,10 @@
+# Scope Memory Migrations
+
+Place forward-only SQLite migration files in this directory when the scope-memory schema changes.
+
+Rules:
+- use zero-padded numeric prefixes such as `0002_add_scope_owner.sql`
+- keep migrations idempotent where possible
+- do not edit already-applied migration files
+- update `schema.sql` so fresh projects still bootstrap correctly from scratch
+- rerun `uv run python tools/init_scope_memory.py` after adding a migration

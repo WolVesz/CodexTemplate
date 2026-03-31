@@ -1,0 +1,95 @@
+## CodexTemplate
+
+This repository is a `copier` template for Python projects that want a Codex-first control plane with strict scope tracking, reviewer-driven QA loops, and strong local quality gates.
+
+The generated control plane is written to map cleanly onto a future LangGraph implementation without forcing you to ship orchestration code in `src/` on day one.
+
+What it generates:
+- a minimal `src/` package scaffold with only `__init__.py`
+- a dedicated `.codex/` control plane for agent rules, workflow policy, reviewer specs, and scope-memory conventions
+- optional Agent Lightning scaffolding for optimizing development workflow without changing scope or governance authority
+- `uv`-managed Python project metadata
+- `ruff`, `mypy`, `pytest`, branch coverage enforcement, `pre-commit`, and GitHub Actions
+- a reviewer registry that is easy to extend without rewiring the rest of the project
+
+Why the layout looks this way:
+- this template repo also ships a root `AGENTS.md` and `.codex/manifest.md` so Codex has a narrow entrypoint while working on the template itself
+- generated projects keep `.codex/` as the project control plane Codex should read first
+- `src/` stays intentionally minimal because this is a starter template, not a bundled application
+- scope memory defaults to SQLite and lives under `.codex/state/`, which is ignored by git
+
+Recommended first-time path:
+
+```bash
+python tools/create_project.py ../my-new-project
+```
+
+This helper expects `uv` to be installed in the environment running the command.
+By default it uses Copier defaults for reliability; pass `--interactive` if you want prompts.
+
+What the helper does:
+- resolves the destination path before copying
+- refuses to write into this template repo
+- refuses to write into a non-empty existing directory unless you explicitly override it
+- runs `uv tool run copier copy --trust ...` for you
+- uses `--defaults` automatically when there is no interactive TTY
+
+If you want to render manually with Copier instead:
+
+```bash
+uv tool install copier
+copier copy --trust . ../my-new-project
+```
+
+If you want the helper but still want prompts:
+
+```bash
+python tools/create_project.py --interactive ../my-new-project
+```
+
+Important: Copier will write into an existing destination directory if you point it at one. If you want the safer behavior, use `tools/create_project.py`.
+
+The generated project includes:
+- adaptive review scope: changed files for small edits, full-repo review for milestone changes
+- a root `AGENTS.md` that directs Codex into `.codex/` instead of consuming the whole repo by default
+- an opinionated README that explains the workflow and how to add reviewers
+- optional Agent Lightning telemetry and dataset-export scaffolding for improving execution, review quality, review-mode recommendation, and remediation efficiency over time
+- Copier post-copy bootstrap that installs the selected project Python, creates `.venv`, installs dev dependencies, initializes state, and installs pre-commit hooks
+
+After generation, the trusted post-copy tasks already attempt to:
+- install the selected Python with `uv python install`
+- create `.venv`
+- install dev dependencies with `uv sync --dev`
+- initialize the local SQLite state files
+- install pre-commit hooks if the new project already has its own `.git` directory
+
+After generation, open the new project and run:
+
+```bash
+uv run python tools/run_full_test_suite.py
+uv run python tools/run_pre_commit.py
+```
+
+If you ever need to rerun bootstrap manually:
+
+```bash
+uv python install 3.14
+uv run --python 3.14 python tools/install_dev_dependencies.py --bootstrap --python-version 3.14
+uv run python tools/init_scope_memory.py
+uv run python tools/init_review_state.py
+uv run python tools/install_pre_commit.py
+```
+
+If you chose a different Python version during project generation, replace `3.14` with that version.
+
+If you cloned the generated project onto another machine, rerun that bootstrap sequence before development.
+
+If you later want to turn on the optional Agent Lightning scaffolding for dev-workflow optimization:
+
+```bash
+uv sync --dev --group lightning
+uv run python tools/init_lightning_telemetry.py
+uv run python tools/record_lightning_trace.py sample_trace.json
+uv run python tools/export_lightning_dataset.py
+uv run python tools/purge_lightning_telemetry.py
+```

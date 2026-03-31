@@ -1,0 +1,62 @@
+project:
+  name: "{{ project_name }}"
+  distribution_name: "{{ distribution_name }}"
+  package_name: "{{ package_name }}"
+  description: "{{ project_description }}"
+  author: "{{ author_name }}"
+
+scope_memory:
+  backend: sqlite
+  path: "{{ scope_memory_path }}"
+  schema_version: 2
+  thread_table: scope_thread
+  canonical_scope_table: scope_snapshot
+  clause_table: scope_clause
+  event_log_table: scope_event
+  migration_table: migration_history
+  commit_strategy: append_only_log_with_latest_snapshot
+  journaling_mode: wal
+  write_strategy: single-writer
+
+review_state:
+  backend: sqlite
+  path: ".codex/state/review_state.sqlite"
+  schema_version: 1
+  run_table: review_run
+  finding_table: review_finding
+  category_table: review_category
+  journaling_mode: wal
+  write_strategy: single-writer
+
+models:
+  default:
+    env_var: CODEX_DEFAULT_MODEL
+    temperature: 0.0
+    max_tokens: 4000
+    timeout_seconds: 120
+    retries: 2
+    structured_output: true
+  scope:
+    env_var: CODEX_SCOPE_MODEL
+    inherits: default
+  execution:
+    env_var: CODEX_EXECUTION_MODEL
+    inherits: default
+  review:
+    env_var: CODEX_REVIEW_MODEL
+    inherits: default
+
+quality:
+  config_file: .codex/config/quality-gates.yaml
+  coverage_threshold: {{ coverage_threshold }}
+  branch_coverage: true
+
+optimization:
+  lightning_config_file: .codex/config/lightning.yaml
+  telemetry_config_file: .codex/config/telemetry.yaml
+  boundaries_policy_file: .codex/policies/lightning-boundaries.md
+
+review:
+  policy_file: .codex/config/review-scope.yaml
+  default_mode: delta
+  milestone_mode: full

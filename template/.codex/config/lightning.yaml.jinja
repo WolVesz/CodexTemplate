@@ -1,0 +1,89 @@
+lightning:
+  enabled: false
+  backend: agent-lightning
+  install_group: lightning
+  mode: advisory
+  policy_ref: .codex/policies/lightning-boundaries.md
+  telemetry_ref: .codex/config/telemetry.yaml
+  event_store_path: .codex/state/lightning_events.sqlite
+  dataset_export_path: .codex/exports/lightning_dataset.jsonl
+  init_command: uv run python tools/init_lightning_telemetry.py
+  record_command: uv run python tools/record_lightning_trace.py <payload.json>
+  export_command: uv run python tools/export_lightning_dataset.py
+
+  primary_objectives:
+    - minimize_llm_queries_to_full_qa_pass
+    - minimize_estimated_llm_cost_usd_to_full_qa_pass
+    - reduce_review_iterations_to_zero_open_in_scope_findings
+
+  secondary_objectives:
+    - increase_confirmed_reviewer_precision
+    - reduce_duplicate_findings
+    - reduce_reopened_in_scope_findings
+    - improve_time_to_first_passing_quality_gate
+    - preserve_finding_yield_per_query
+    - reduce_false_negative_risk_proxy
+
+  protected_invariants:
+    - do_not_modify_scope_authority
+    - do_not_override_scope_triage
+    - do_not_change_hard_governance_rules
+    - do_not_bypass_required_reviewers
+    - do_not_skip_local_quality_gates
+
+  trainable_surfaces:
+    execution:
+      enabled: true
+      automation_mode: advisory
+      objective_bias:
+        - fewer_queries
+        - lower_cost
+        - faster_green
+    reviewer_quality:
+      enabled: true
+      automation_mode: advisory
+      objective_bias:
+        - higher_precision
+        - fewer_duplicates
+        - better_evidence_quality
+    review_mode_selection:
+      enabled: true
+      automation_mode: recommend_under_policy
+      final_authority: scope-intent-plus-review-scope-policy
+      objective_bias:
+        - lower_review_cost
+        - preserve_full_review_triggers
+        - maximize_finding_yield_per_query
+    remediation:
+      enabled: true
+      automation_mode: advisory
+      objective_bias:
+        - close_in_scope_findings_faster
+        - reduce_regressions
+        - reduce_reopen_rate
+
+  excluded_surfaces:
+    - scope-intent
+    - scope-triage
+    - hard-governance
+
+  recommendation_contract:
+    require_policy_check: true
+    record_override_reason: true
+    allow_policy_block: true
+
+  query_efficiency:
+    primary_metric: llm_query_count_to_full_qa_pass
+    secondary_metric: estimated_llm_cost_usd_to_full_qa_pass
+    quality_counterweights:
+      - confirmed_finding_precision
+      - finding_yield_proxy
+      - false_negative_risk_proxy
+      - policy_compliance_rate
+    never_trade_away:
+      - full_qa_pass_integrity
+      - required_reviewer_coverage
+      - in_scope_remediation_completeness
+
+  kill_switch_env_var: AGENT_LIGHTNING_ENABLED
+  capability_note: future-ready advisory telemetry scaffold; real runtime instrumentation must call the record tool or equivalent adapter

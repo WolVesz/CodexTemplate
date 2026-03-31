@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+
+DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+
+
+def resolve_state_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must use forward slashes.")
+
+    path = Path(path_raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+        )
+
+    if tuple(path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+
+    return path
+
+
+def load_telemetry_config(root: Path) -> dict[str, object]:
+    config_path = root / ".codex/config/telemetry.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))["telemetry"]
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    telemetry = load_telemetry_config(root)
+    keep_days = int(telemetry["retention"]["keep_days"])
+    db_path = root / resolve_state_path(os.environ.get("LIGHTNING_EVENT_DB_PATH", DEFAULT_DB_PATH.as_posix()))
+
+    if not db_path.exists():
+        raise SystemExit("Initialize Lightning telemetry before purging old records.")
+
+    if telemetry["retention"]["export_before_purge"]:
+        export_path = root / ".codex/exports/lightning_dataset.before_purge.jsonl"
+        subprocess.run(
+            [sys.executable, str(root / "tools/export_lightning_dataset.py")],
+            cwd=root,
+            env={
+                **os.environ,
+                "LIGHTNING_EVENT_DB_PATH": db_path.relative_to(root).as_posix(),
+                "LIGHTNING_DATASET_EXPORT_PATH": export_path.relative_to(root).as_posix(),
+            },
+            check=True,
+        )
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys = ON;")
+        expired_run_ids = [
+            row[0]
+            for row in connection.execute(
+                "SELECT run_id FROM lightning_run WHERE started_at < datetime('now', ?)",
+                (f"-{keep_days} days",),
+            ).fetchall()
+        ]
+
+        if not expired_run_ids:
+            print(f"No Lightning telemetry older than {keep_days} days to purge from {db_path}")
+            return
+
+        placeholders = ",".join("?" for _ in expired_run_ids)
+        connection.execute(
+            f"DELETE FROM finding_adjudication WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM reward_snapshot WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM optimization_recommendation WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM llm_query_event WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM tool_invocation_event WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM phase_event WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+        connection.execute(
+            f"DELETE FROM lightning_run WHERE run_id IN ({placeholders})",
+            expired_run_ids,
+        )
+    finally:
+        connection.close()
+
+    print(f"Purged Lightning telemetry older than {keep_days} days from {db_path}")
+
+
+if __name__ == "__main__":
+    main()

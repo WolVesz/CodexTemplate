@@ -1,0 +1,46 @@
+# Codex Control Plane
+
+`AGENTS.md` is the repository entry point. After reading it, use this directory as the default entry point for project behavior.
+
+## Read Order
+
+1. `.codex/config/runtime.yaml`
+2. `README.md`
+3. `.codex/config/project-surfaces.yaml`
+4. `.codex/config/quality-gates.yaml`
+5. `.codex/config/review-scope.yaml`
+6. `.codex/config/trigger-derivation.yaml`
+7. `.codex/config/finding-contract.yaml`
+8. `.codex/config/workflow.yaml`
+9. `.codex/config/reviewers.yaml`
+10. `.codex/policies/quality.md`
+11. `.codex/policies/review-scope.md`
+12. `.codex/policies/finding-quality.md`
+13. `.codex/policies/release-readiness.md`
+
+If Agent Lightning is enabled or the task is about optimization, then continue with:
+14. `.codex/policies/lightning-boundaries.md`
+15. `.codex/config/lightning.yaml`
+16. `.codex/config/telemetry.yaml`
+
+## Control Surfaces
+
+- `.codex/config/runtime.yaml`: project metadata, model defaults, and scope-memory defaults
+- `.codex/config/project-surfaces.yaml`: explicit declaration of whether real model, prompt, or data-contract surfaces exist yet
+- `.codex/config/quality-gates.yaml`: authoritative local QA commands, coverage, and blocked-state handling
+- `.codex/config/review-scope.yaml`: authoritative delta/full review rules and milestone triggers
+- `.codex/config/trigger-derivation.yaml`: deterministic mapping from change metadata to normalized review triggers
+- `.codex/config/finding-contract.yaml`: canonical reviewer finding payload, field semantics, and example
+- `.codex/config/workflow.yaml`: graph-friendly execution loop for scope, implementation, QA, triage, and remediation
+- `.codex/config/reviewers.yaml`: config-driven reviewer registry with activation rules
+- `.codex/config/lightning.yaml`: optional Agent Lightning optimization boundaries, objectives, and trainable surfaces
+- `.codex/config/telemetry.yaml`: passive telemetry capture rules and export paths for optimization data
+- `.codex/agents/`: detailed role definitions used by the workflow
+- `.codex/policies/`: mandatory guardrails, finding quality rules, release-readiness checks, optimization boundaries, and escalation rules
+- `.codex/memory/`: SQLite schema and retention conventions for scope memory
+
+## Design Intent
+
+- Keep Codex focused on the project control plane first.
+- Keep application code discovery targeted to the files relevant for the current task.
+- Preserve a durable record of scope decisions so triage can anchor every decision to explicit prior intent.

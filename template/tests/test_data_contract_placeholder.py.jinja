@@ -1,0 +1,53 @@
+import pytest
+import yaml
+from pathlib import Path
+
+
+@pytest.mark.data_contract
+def test_data_contract_gate_validates_contract_scaffold() -> None:
+    root = Path(__file__).resolve().parents[1]
+    surfaces = yaml.safe_load(
+        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+    )["project_surfaces"]
+    finding_contract = yaml.safe_load(
+        (root / ".codex/config/finding-contract.yaml").read_text(encoding="utf-8")
+    )["finding_contract"]
+
+    assert (root / "contracts/README.md").exists()
+    assert (root / "contracts/schemas/.gitkeep").exists()
+    assert (root / "tests/fixtures/data_contracts/.gitkeep").exists()
+    assert "required_fields" in finding_contract
+    assert "example" in finding_contract
+
+    project_code_files = [
+        path
+        for path in (root / "src").rglob("*.py")
+        if path.name != "__init__.py"
+    ]
+    if not project_code_files:
+        assert surfaces["classification_complete"] is False
+
+
+@pytest.mark.data_contract
+def test_data_contract_gate_requires_real_checks_when_schema_files_exist() -> None:
+    root = Path(__file__).resolve().parents[1]
+    surfaces = yaml.safe_load(
+        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+    )["project_surfaces"]
+    src_files = [path for path in (root / "src").rglob("*.py") if path.name != "__init__.py"]
+    schema_files = [
+        path
+        for path in (root / "contracts/schemas").rglob("*")
+        if path.is_file() and path.name != ".gitkeep"
+    ]
+    real_contract_tests = [
+        path
+        for path in (root / "tests/data_contracts").rglob("*.py")
+        if "@pytest.mark.data_contract" in path.read_text(encoding="utf-8")
+    ]
+
+    if src_files:
+        assert surfaces["classification_complete"], "Update .codex/config/project-surfaces.yaml once real code exists."
+
+    if schema_files or surfaces["has_data_contract_surfaces"]:
+        assert real_contract_tests, "Add at least one marked project-specific test under tests/data_contracts/."

@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+DEFAULT_EXPORT_PATH = Path(".codex/exports/lightning_dataset.jsonl")
+
+
+def resolve_state_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must use forward slashes.")
+
+    path = Path(path_raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+        )
+
+    if tuple(path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+
+    return path
+
+
+def resolve_export_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("LIGHTNING_DATASET_EXPORT_PATH must use forward slashes.")
+
+    path = Path(path_raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise SystemExit(
+            "LIGHTNING_DATASET_EXPORT_PATH must stay inside the project under .codex/exports/."
+        )
+
+    if tuple(path.parts[:2]) != (".codex", "exports"):
+        raise SystemExit("LIGHTNING_DATASET_EXPORT_PATH must stay inside .codex/exports/.")
+
+    return path
+
+
+def load_telemetry_config(root: Path) -> dict[str, Any]:
+    config_path = root / ".codex/config/telemetry.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))["telemetry"]
+
+
+def maybe_hash(value: str, telemetry_config: dict[str, Any]) -> str:
+    if telemetry_config["redaction"]["hash_sensitive_inputs"]:
+        if len(value) == 64 and all(char in "0123456789abcdef" for char in value.lower()):
+            return value
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return value
+
+
+def build_dataset(connection: sqlite3.Connection, telemetry_config: dict[str, Any]) -> list[dict[str, Any]]:
+    runs = connection.execute(
+        """
+        SELECT
+            run_id,
+            workflow_name,
+            scope_thread_key,
+            review_mode,
+            final_status,
+            started_at,
+            completed_at,
+            total_llm_queries,
+            estimated_llm_cost_usd,
+            workload_context_json,
+            review_iterations,
+            closed_in_scope_findings,
+            duplicate_findings,
+            confirmed_findings,
+            confirmed_finding_precision,
+            finding_yield_proxy,
+            false_negative_risk_proxy,
+            policy_override_count,
+            code_revision,
+            build_id,
+            eval_dataset_version,
+            lightning_enabled
+        FROM lightning_run
+        ORDER BY run_id
+        """
+    ).fetchall()
+
+    dataset: list[dict[str, Any]] = []
+    for run in runs:
+        run_id = int(run[0])
+        recommendation_rows = connection.execute(
+            """
+            SELECT
+                surface,
+                recommendation_key,
+                was_applied,
+                policy_blocked,
+                policy_check_passed,
+                policy_check_ref,
+                blocked_by_rule,
+                final_decision,
+                recommendation_json,
+                llm_queries_saved_estimate,
+                cost_saved_estimate_usd
+            FROM optimization_recommendation
+            WHERE run_id = ?
+            ORDER BY recommendation_id
+            """,
+            (run_id,),
+        ).fetchall()
+        llm_query_rows = connection.execute(
+            "SELECT phase_id, agent_id, model_name, prompt_version, query_kind, prompt_tokens, "
+            "completion_tokens, estimated_cost_usd, latency_ms, cache_hit, success "
+            "FROM llm_query_event WHERE run_id = ? ORDER BY query_id",
+            (run_id,),
+        ).fetchall()
+        tool_rows = connection.execute(
+            "SELECT phase_id, agent_id, tool_name, success, latency_ms "
+            "FROM tool_invocation_event WHERE run_id = ? ORDER BY tool_call_id",
+            (run_id,),
+        ).fetchall()
+        reward_rows = connection.execute(
+            "SELECT surface, metric_name, metric_value, reward_value "
+            "FROM reward_snapshot WHERE run_id = ? ORDER BY reward_id",
+            (run_id,),
+        ).fetchall()
+        adjudication_rows = connection.execute(
+            "SELECT finding_key, reviewer_id, outcome, confidence "
+            "FROM finding_adjudication WHERE run_id = ? ORDER BY adjudication_id",
+            (run_id,),
+        ).fetchall()
+        phase_count = connection.execute(
+            "SELECT COUNT(*) FROM phase_event WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()[0]
+        query_count = connection.execute(
+            "SELECT COUNT(*) FROM llm_query_event WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()[0]
+        reopened_count = sum(1 for adjudication in adjudication_rows if adjudication[2] == "reopened")
+        recommendation_total = len(recommendation_rows)
+        policy_compliance_rate = (
+            sum(1 for recommendation in recommendation_rows if recommendation[4]) / recommendation_total
+            if recommendation_total
+            else 1.0
+        )
+
+        dataset.append(
+            {
+                "run_id": run_id,
+                "workflow_name": run[1],
+                "scope_thread_key": maybe_hash(str(run[2]), telemetry_config),
+                "review_mode": run[3],
+                "final_status": run[4],
+                "started_at": run[5],
+                "completed_at": run[6],
+                "cost_metrics": {
+                    "total_llm_queries": run[7],
+                    "estimated_llm_cost_usd": run[8],
+                    "query_events_recorded": query_count,
+                },
+                "workload_context": json.loads(run[9]),
+                "quality_metrics": {
+                    "review_iterations": run[10],
+                    "closed_in_scope_findings": run[11],
+                    "duplicate_findings": run[12],
+                    "confirmed_findings": run[13],
+                    "confirmed_finding_precision": run[14],
+                    "finding_yield_proxy": run[15],
+                    "false_negative_risk_proxy": run[16],
+                    "policy_override_count": run[17],
+                    "code_revision": run[18],
+                    "build_id": run[19],
+                    "eval_dataset_version": run[20],
+                    "lightning_enabled": bool(run[21]),
+                    "reopened_findings_per_run": reopened_count,
+                    "policy_compliance_rate": policy_compliance_rate,
+                    "phase_events_recorded": phase_count,
+                },
+                "recommendations": [
+                    {
+                        "surface": recommendation[0],
+                        "recommendation_key": recommendation[1],
+                        "was_applied": bool(recommendation[2]),
+                        "policy_blocked": bool(recommendation[3]),
+                        "policy_check_passed": bool(recommendation[4]),
+                        "policy_check_ref": recommendation[5],
+                        "blocked_by_rule": recommendation[6],
+                        "final_decision": recommendation[7],
+                        "recommendation": json.loads(recommendation[8]),
+                        "llm_queries_saved_estimate": recommendation[9],
+                        "cost_saved_estimate_usd": recommendation[10],
+                    }
+                    for recommendation in recommendation_rows
+                ],
+                "llm_queries": [
+                    {
+                        "phase_id": query[0],
+                        "agent_id": query[1],
+                        "model_name": query[2],
+                        "prompt_version": query[3],
+                        "query_kind": query[4],
+                        "prompt_tokens": query[5],
+                        "completion_tokens": query[6],
+                        "estimated_cost_usd": query[7],
+                        "latency_ms": query[8],
+                        "cache_hit": bool(query[9]),
+                        "success": bool(query[10]),
+                    }
+                    for query in llm_query_rows
+                ],
+                "tool_invocations": [
+                    {
+                        "phase_id": tool[0],
+                        "agent_id": tool[1],
+                        "tool_name": tool[2],
+                        "success": bool(tool[3]),
+                        "latency_ms": tool[4],
+                    }
+                    for tool in tool_rows
+                ],
+                "rewards": [
+                    {
+                        "surface": reward[0],
+                        "metric_name": reward[1],
+                        "metric_value": reward[2],
+                        "reward_value": reward[3],
+                    }
+                    for reward in reward_rows
+                ],
+                "adjudications": [
+                    {
+                        "finding_key": adjudication[0],
+                        "reviewer_id": adjudication[1],
+                        "outcome": adjudication[2],
+                        "confidence": adjudication[3],
+                    }
+                    for adjudication in adjudication_rows
+                ],
+            }
+        )
+
+    return dataset
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    telemetry_config = load_telemetry_config(root)
+    db_path_raw = os.environ.get("LIGHTNING_EVENT_DB_PATH", DEFAULT_DB_PATH.as_posix())
+    export_path_raw = os.environ.get(
+        "LIGHTNING_DATASET_EXPORT_PATH", DEFAULT_EXPORT_PATH.as_posix()
+    )
+    db_path = root / resolve_state_path(db_path_raw)
+    export_path = root / resolve_export_path(export_path_raw)
+
+    if not db_path.exists():
+        raise SystemExit("Initialize Lightning telemetry before exporting a dataset.")
+
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        dataset = build_dataset(connection, telemetry_config)
+    finally:
+        connection.close()
+
+    with export_path.open("w", encoding="utf-8") as handle:
+        for row in dataset:
+            handle.write(json.dumps(row, sort_keys=True))
+            handle.write("\n")
+
+    print(f"Exported {len(dataset)} Lightning runs to {export_path}")
+
+
+if __name__ == "__main__":
+    main()

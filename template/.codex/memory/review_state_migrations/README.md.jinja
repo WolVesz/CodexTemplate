@@ -1,0 +1,10 @@
+# Review State Migrations
+
+Place forward-only SQLite migration files for review execution state in this directory when the review-state schema changes.
+
+Rules:
+- use zero-padded numeric prefixes such as `0002_add_reviewer_group.sql`
+- keep migrations idempotent where possible
+- do not edit already-applied migration files
+- update `review_state_schema.sql` so fresh projects still bootstrap correctly from scratch
+- rerun `uv run python tools/init_review_state.py` after adding a migration

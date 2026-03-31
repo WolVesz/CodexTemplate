@@ -1,0 +1,480 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+
+
+def load_lightning_config(root: Path) -> dict[str, Any]:
+    config_path = root / ".codex/config/lightning.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))["lightning"]
+
+
+def resolve_state_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must use forward slashes.")
+
+    path = Path(path_raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+        )
+
+    if tuple(path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+
+    return path
+
+
+def load_telemetry_config(root: Path) -> dict[str, Any]:
+    config_path = root / ".codex/config/telemetry.yaml"
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))["telemetry"]
+
+
+def maybe_hash(value: str, telemetry_config: dict[str, Any]) -> str:
+    if telemetry_config["redaction"]["hash_sensitive_inputs"]:
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return value
+
+
+def sanitize_value(value: Any, telemetry_config: dict[str, Any], key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {item_key: sanitize_value(item_value, telemetry_config, item_key) for item_key, item_value in value.items()}
+    if isinstance(value, list):
+        return [sanitize_value(item, telemetry_config, key) for item in value]
+    if not isinstance(value, str):
+        return value
+
+    lowered_key = key.lower()
+    if telemetry_config["redaction"]["redact_env_values"] and any(
+        token in lowered_key for token in ("secret", "token", "api", "key", "authorization")
+    ):
+        return "[REDACTED]"
+
+    if telemetry_config["redaction"]["store_raw_prompts"] is False and "prompt" in lowered_key:
+        return maybe_hash(value, telemetry_config)
+
+    if telemetry_config["redaction"]["store_raw_diffs"] is False and "diff" in lowered_key:
+        return maybe_hash(value, telemetry_config)
+
+    if telemetry_config["redaction"]["store_raw_scope_clauses"] is False and any(
+        token in lowered_key for token in ("scope", "clause", "intent")
+    ):
+        return maybe_hash(value, telemetry_config)
+
+    if telemetry_config["redaction"]["hash_sensitive_inputs"] and any(
+        token in lowered_key for token in ("note", "rationale")
+    ):
+        return maybe_hash(value, telemetry_config)
+
+    return value
+
+
+def filter_allowed_keys(value: Any, allowlist: list[str]) -> Any:
+    if not isinstance(value, dict):
+        return value
+    if not allowlist:
+        return {}
+    return {key: item for key, item in value.items() if key in allowlist}
+
+
+def validate_payload(payload: dict[str, Any]) -> None:
+    nonnegative_fields = (
+        "total_llm_queries",
+        "total_tool_calls",
+        "estimated_llm_cost_usd",
+        "total_prompt_tokens",
+        "total_completion_tokens",
+        "review_iterations",
+        "open_in_scope_findings",
+        "closed_in_scope_findings",
+        "duplicate_findings",
+        "confirmed_findings",
+        "policy_override_count",
+    )
+    bounded_fields = (
+        "confirmed_finding_precision",
+        "finding_yield_proxy",
+        "false_negative_risk_proxy",
+    )
+
+    for field in nonnegative_fields:
+        value = payload.get(field, 0)
+        if value < 0:
+            raise SystemExit(f"{field} must be nonnegative.")
+
+    for field in bounded_fields:
+        value = payload.get(field, 0.0)
+        if value < 0.0 or value > 1.0:
+            raise SystemExit(f"{field} must be between 0.0 and 1.0.")
+
+    if payload.get("false_negative_risk_proxy", 0.0) > 0.0 and not payload.get("eval_dataset_version"):
+        raise SystemExit("eval_dataset_version is required when false_negative_risk_proxy is provided.")
+
+
+def update_derived_metrics(connection: sqlite3.Connection, run_id: int, payload: dict[str, Any]) -> None:
+    llm_counts = connection.execute(
+        "SELECT COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
+        "COALESCE(SUM(estimated_cost_usd), 0.0) FROM llm_query_event WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    tool_count = connection.execute(
+        "SELECT COUNT(*) FROM tool_invocation_event WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()[0]
+    adjudication_rows = connection.execute(
+        "SELECT outcome FROM finding_adjudication WHERE run_id = ?",
+        (run_id,),
+    ).fetchall()
+
+    confirmed_count = sum(1 for row in adjudication_rows if row[0] == "confirmed")
+    total_scored = sum(
+        1 for row in adjudication_rows if row[0] in {"confirmed", "rejected", "duplicate", "out-of-scope"}
+    )
+    confirmed_precision = confirmed_count / total_scored if total_scored else payload.get(
+        "confirmed_finding_precision", 0.0
+    )
+    total_llm_queries = int(llm_counts[0])
+    finding_yield_proxy = (
+        confirmed_count / total_llm_queries if total_llm_queries else payload.get("finding_yield_proxy", 0.0)
+    )
+
+    connection.execute(
+        """
+        UPDATE lightning_run
+        SET total_llm_queries = ?,
+            total_tool_calls = ?,
+            estimated_llm_cost_usd = ?,
+            total_prompt_tokens = ?,
+            total_completion_tokens = ?,
+            confirmed_findings = ?,
+            confirmed_finding_precision = ?,
+            finding_yield_proxy = ?,
+            false_negative_risk_proxy = ?,
+            completed_at = CURRENT_TIMESTAMP
+        WHERE run_id = ?
+        """,
+        (
+            total_llm_queries,
+            int(tool_count),
+            float(llm_counts[3]),
+            int(llm_counts[1]),
+            int(llm_counts[2]),
+            confirmed_count,
+            confirmed_precision,
+            finding_yield_proxy,
+            payload.get("false_negative_risk_proxy", 0.0),
+            run_id,
+        ),
+    )
+
+
+def insert_many(
+    connection: sqlite3.Connection,
+    run_id: int,
+    section: str,
+    rows: list[dict[str, Any]],
+    lightning_enabled: bool,
+    telemetry_config: dict[str, Any],
+) -> None:
+    if section == "phase_events":
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO phase_event (
+                    run_id, phase_id, agent_id, step_index, action_kind, status, llm_query_count,
+                    estimated_cost_usd, latency_ms, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    row["phase_id"],
+                    row["agent_id"],
+                    row.get("step_index", 0),
+                    row["action_kind"],
+                    row["status"],
+                    row.get("llm_query_count", 0),
+                    row.get("estimated_cost_usd", 0.0),
+                    row.get("latency_ms"),
+                    json.dumps(
+                        sanitize_value(
+                            filter_allowed_keys(
+                                row.get("metadata", {}),
+                                telemetry_config["capture"]["phase_transition"]["metadata_allowlist"],
+                            ),
+                            telemetry_config,
+                        ),
+                        sort_keys=True,
+                    ),
+                ),
+            )
+    elif section == "llm_queries":
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO llm_query_event (
+                    run_id, phase_id, agent_id, model_name, prompt_version, query_kind, prompt_tokens,
+                    completion_tokens, estimated_cost_usd, latency_ms, cache_hit, success
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    row["phase_id"],
+                    row["agent_id"],
+                    row["model_name"],
+                    row["prompt_version"],
+                    row["query_kind"],
+                    row.get("prompt_tokens", 0),
+                    row.get("completion_tokens", 0),
+                    row.get("estimated_cost_usd", 0.0),
+                    row.get("latency_ms"),
+                    int(bool(row.get("cache_hit", False))),
+                    int(bool(row.get("success", True))),
+                ),
+            )
+    elif section == "tool_invocations":
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO tool_invocation_event (
+                    run_id, phase_id, agent_id, tool_name, success, latency_ms
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    row["phase_id"],
+                    row["agent_id"],
+                    row["tool_name"],
+                    int(bool(row.get("success", True))),
+                    row.get("latency_ms"),
+                ),
+            )
+    elif section == "recommendations":
+        for row in rows:
+            was_applied = bool(row.get("was_applied", False)) and lightning_enabled
+            policy_blocked = bool(row.get("policy_blocked", False)) or not lightning_enabled
+            final_decision = row.get("final_decision", "ignored")
+            blocked_rule = row.get("blocked_by_rule", "")
+            if not lightning_enabled:
+                final_decision = "blocked"
+                blocked_rule = blocked_rule or "AGENT_LIGHTNING_ENABLED=false"
+
+            connection.execute(
+                """
+                INSERT INTO optimization_recommendation (
+                    run_id, surface, recommendation_key, recommendation_json, was_applied,
+                    policy_blocked, policy_check_passed, policy_check_ref, blocked_by_rule,
+                    final_decision, rationale, llm_queries_saved_estimate, cost_saved_estimate_usd
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    row["surface"],
+                    row["recommendation_key"],
+                    json.dumps(
+                        sanitize_value(
+                            filter_allowed_keys(
+                                row.get("recommendation", {}),
+                                telemetry_config["capture"]["optimization_recommendation"][
+                                    "recommendation_allowlist"
+                                ],
+                            ),
+                            telemetry_config,
+                        ),
+                        sort_keys=True,
+                    ),
+                    int(was_applied),
+                    int(policy_blocked),
+                    int(bool(row.get("policy_check_passed", False) and lightning_enabled)),
+                    row.get("policy_check_ref", ""),
+                    blocked_rule,
+                    final_decision,
+                    sanitize_value(row["rationale"], telemetry_config, "rationale"),
+                    row.get("llm_queries_saved_estimate", 0.0),
+                    row.get("cost_saved_estimate_usd", 0.0),
+                ),
+            )
+    elif section == "rewards":
+        for row in rows:
+            connection.execute(
+                "INSERT INTO reward_snapshot (run_id, surface, metric_name, metric_value, reward_value) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    row["surface"],
+                    row["metric_name"],
+                    row["metric_value"],
+                    row["reward_value"],
+                ),
+            )
+    elif section == "adjudications":
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO finding_adjudication (
+                    run_id, finding_key, reviewer_id, outcome, confidence
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    row["finding_key"],
+                    row["reviewer_id"],
+                    row["outcome"],
+                    row.get("confidence"),
+                ),
+            )
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: uv run python tools/record_lightning_trace.py <payload.json>")
+
+    root = Path(__file__).resolve().parents[1]
+    payload_path = Path(sys.argv[1])
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    telemetry_config = load_telemetry_config(root)
+    lightning_config = load_lightning_config(root)
+    db_path = root / resolve_state_path(os.environ.get("LIGHTNING_EVENT_DB_PATH", DEFAULT_DB_PATH.as_posix()))
+    telemetry_env_var = telemetry_config["enabled_env_var"]
+    telemetry_enabled = (
+        os.environ.get(str(telemetry_env_var), str(telemetry_config["enabled"])).lower() == "true"
+    )
+    kill_switch = lightning_config["kill_switch_env_var"]
+    lightning_enabled = os.environ.get(str(kill_switch), str(lightning_config["enabled"])).lower() == "true"
+
+    if not telemetry_enabled and not lightning_enabled:
+        print("Lightning telemetry disabled; skipping trace record.")
+        return
+
+    if not db_path.exists():
+        raise SystemExit("Initialize Lightning telemetry before recording traces.")
+
+    validate_payload(payload)
+
+    scope_thread_key = maybe_hash(payload["scope_thread_key"], telemetry_config)
+    capture = telemetry_config["capture"]
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA foreign_keys = ON;")
+        cursor = connection.execute(
+            """
+            INSERT INTO lightning_run (
+                workflow_name, scope_thread_key, review_mode, final_status, total_llm_queries,
+                total_tool_calls, estimated_llm_cost_usd, total_prompt_tokens, workload_context_json,
+                total_completion_tokens, review_iterations, open_in_scope_findings,
+                closed_in_scope_findings, duplicate_findings, confirmed_findings,
+                confirmed_finding_precision, finding_yield_proxy, false_negative_risk_proxy,
+                policy_override_count, code_revision, build_id, eval_dataset_version,
+                lightning_enabled, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["workflow_name"],
+                scope_thread_key,
+                payload["review_mode"],
+                payload["final_status"],
+                payload.get("total_llm_queries", 0),
+                payload.get("total_tool_calls", 0),
+                payload.get("estimated_llm_cost_usd", 0.0),
+                payload.get("total_prompt_tokens", 0),
+                json.dumps(
+                    sanitize_value(
+                        filter_allowed_keys(
+                            payload.get("workload_context", {}),
+                            telemetry_config["capture"]["workflow_run"]["workload_context_allowlist"],
+                        ),
+                        telemetry_config,
+                    ),
+                    sort_keys=True,
+                ),
+                payload.get("total_completion_tokens", 0),
+                payload.get("review_iterations", 0),
+                payload.get("open_in_scope_findings", 0),
+                payload.get("closed_in_scope_findings", 0),
+                payload.get("duplicate_findings", 0),
+                payload.get("confirmed_findings", 0),
+                payload.get("confirmed_finding_precision", 0.0),
+                payload.get("finding_yield_proxy", 0.0),
+                payload.get("false_negative_risk_proxy", 0.0),
+                payload.get("policy_override_count", 0),
+                payload.get("code_revision"),
+                payload.get("build_id"),
+                payload.get("eval_dataset_version"),
+                int(lightning_enabled),
+                sanitize_value(payload.get("notes"), telemetry_config, "notes"),
+            ),
+        )
+        run_id = int(cursor.lastrowid)
+
+        if capture["phase_transition"]["enabled"]:
+            insert_many(
+                connection,
+                run_id,
+                "phase_events",
+                payload.get("phase_events", []),
+                lightning_enabled,
+                telemetry_config,
+            )
+        if capture["llm_query"]["enabled"]:
+            insert_many(
+                connection,
+                run_id,
+                "llm_queries",
+                payload.get("llm_queries", []),
+                lightning_enabled,
+                telemetry_config,
+            )
+        if capture["tool_invocation"]["enabled"]:
+            insert_many(
+                connection,
+                run_id,
+                "tool_invocations",
+                payload.get("tool_invocations", []),
+                lightning_enabled,
+                telemetry_config,
+            )
+        if capture["optimization_recommendation"]["enabled"]:
+            insert_many(
+                connection,
+                run_id,
+                "recommendations",
+                payload.get("recommendations", []),
+                lightning_enabled,
+                telemetry_config,
+            )
+        if capture["reward_snapshot"]["enabled"]:
+            insert_many(
+                connection,
+                run_id,
+                "rewards",
+                payload.get("rewards", []),
+                lightning_enabled,
+                telemetry_config,
+            )
+        insert_many(
+            connection,
+            run_id,
+            "adjudications",
+            payload.get("adjudications", []),
+            lightning_enabled,
+            telemetry_config,
+        )
+        update_derived_metrics(connection, run_id, payload)
+    finally:
+        connection.close()
+
+    print(f"Recorded Lightning trace for run {run_id}")
+
+
+if __name__ == "__main__":
+    main()

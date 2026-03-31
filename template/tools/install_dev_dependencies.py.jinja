@@ -1,0 +1,48 @@
+from __future__ import annotations
+
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Install dev dependencies with uv.")
+    parser.add_argument("--python-version", help="Python version to target for the environment.")
+    parser.add_argument(
+        "--group",
+        action="append",
+        default=[],
+        help="Optional dependency group to install in addition to dev.",
+    )
+    parser.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help="Generate a lockfile first when one does not exist.",
+    )
+    args = parser.parse_args()
+
+    if shutil.which("uv") is None:
+        raise SystemExit("uv is required to install project dependencies.")
+
+    lockfile = ROOT / "uv.lock"
+    if args.bootstrap and not lockfile.exists():
+        subprocess.run(["uv", "lock"], cwd=ROOT, check=True)
+
+    command = ["uv", "sync", "--dev"]
+    for group in args.group:
+        command.extend(["--group", group])
+    if args.python_version:
+        command.extend(["--python", args.python_version])
+    if lockfile.exists():
+        command.append("--locked")
+
+    raise SystemExit(subprocess.call(command, cwd=ROOT))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from pathlib import Path
+
+
+DEFAULT_DB_PATH = Path("{{ scope_memory_path }}")
+EXPECTED_SCHEMA_VERSION = "2"
+
+
+def apply_migrations(connection: sqlite3.Connection, migrations_dir: Path) -> None:
+    if not migrations_dir.exists():
+        return
+
+    for migration_path in sorted(migrations_dir.glob("*.sql")):
+        migration_id = migration_path.stem
+        existing = connection.execute(
+            "SELECT 1 FROM migration_history WHERE migration_id = ?",
+            (migration_id,),
+        ).fetchone()
+        if existing is not None:
+            continue
+
+        connection.executescript(migration_path.read_text(encoding="utf-8"))
+        connection.execute(
+            "INSERT INTO migration_history (migration_id, description) VALUES (?, ?)",
+            (migration_id, f"Applied migration file {migration_path.name}"),
+        )
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    schema_path = root / ".codex/memory/schema.sql"
+    migrations_dir = root / ".codex/memory/migrations"
+    configured_path_raw = os.environ.get("SCOPE_MEMORY_PATH", DEFAULT_DB_PATH.as_posix())
+
+    if "\\" in configured_path_raw:
+        raise SystemExit("SCOPE_MEMORY_PATH must use forward slashes.")
+
+    configured_path = Path(configured_path_raw)
+
+    if configured_path.is_absolute() or ".." in configured_path.parts:
+        raise SystemExit("SCOPE_MEMORY_PATH must stay inside the project under .codex/state/.")
+
+    if tuple(configured_path.parts[:2]) != (".codex", "state"):
+        raise SystemExit("SCOPE_MEMORY_PATH must stay inside .codex/state/.")
+
+    db_path = root / configured_path
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute("PRAGMA journal_mode=WAL;")
+        connection.executescript(schema_path.read_text(encoding="utf-8"))
+        apply_migrations(connection, migrations_dir)
+
+        version_row = connection.execute(
+            "SELECT metadata_value FROM schema_metadata WHERE metadata_key = 'schema_version'"
+        ).fetchone()
+        if version_row is None or version_row[0] != EXPECTED_SCHEMA_VERSION:
+            raise SystemExit(
+                "Scope-memory bootstrap failed to verify the expected schema version. "
+                "Apply the matching migration before continuing."
+            )
+    finally:
+        connection.close()
+
+    print(f"Initialized scope memory at {db_path}")
+
+
+if __name__ == "__main__":
+    main()

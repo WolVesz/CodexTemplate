@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDEs and editors
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+.env.local
+.env.development
+.env.test
+.env.*.local
+
+# Codex runtime state
+.codex/state/**
+!.codex/state/.gitkeep
+.codex/exports/**
+!.codex/exports/.gitkeep
+.codex/logs/**
+!.codex/logs/.gitkeep

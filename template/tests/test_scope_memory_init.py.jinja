@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "tools/init_scope_memory.py"
+
+
+def cleanup_database_files(db_path: Path) -> None:
+    paths = (
+        db_path,
+        db_path.with_name(f"{db_path.name}-wal"),
+        db_path.with_name(f"{db_path.name}-shm"),
+    )
+    for path in paths:
+        if path.exists():
+            path.unlink()
+
+
+def run_init(scope_memory_path: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["SCOPE_MEMORY_PATH"] = scope_memory_path
+    return subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_init_scope_memory_creates_database() -> None:
+    db_path = ROOT / ".codex/state/test_scope_memory.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        result = run_init(".codex/state/test_scope_memory.sqlite")
+
+        assert result.returncode == 0
+        assert db_path.exists()
+    finally:
+        cleanup_database_files(db_path)
+
+
+def test_init_scope_memory_rejects_path_traversal() -> None:
+    result = run_init("../outside.sqlite")
+
+    assert result.returncode != 0
+    assert "must stay inside the project" in result.stderr or (
+        "must stay inside the project" in result.stdout
+    )
+
+
+def test_init_scope_memory_rejects_backslashes() -> None:
+    result = run_init(".codex\\state\\bad.sqlite")
+
+    assert result.returncode != 0
+    assert "must use forward slashes" in result.stderr or (
+        "must use forward slashes" in result.stdout
+    )
+
+
+def test_init_scope_memory_fails_on_schema_version_mismatch() -> None:
+    db_path = ROOT / ".codex/state/test_scope_memory_mismatch.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        first = run_init(".codex/state/test_scope_memory_mismatch.sqlite")
+        assert first.returncode == 0
+
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute(
+                "UPDATE schema_metadata SET metadata_value = '0' "
+                "WHERE metadata_key = 'schema_version'"
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        second = run_init(".codex/state/test_scope_memory_mismatch.sqlite")
+        assert second.returncode != 0
+        assert "expected schema version" in second.stderr or (
+            "expected schema version" in second.stdout
+        )
+    finally:
+        cleanup_database_files(db_path)
+
+
+def test_init_scope_memory_is_idempotent() -> None:
+    db_path = ROOT / ".codex/state/test_scope_memory_repeat.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        first = run_init(".codex/state/test_scope_memory_repeat.sqlite")
+        second = run_init(".codex/state/test_scope_memory_repeat.sqlite")
+
+        assert first.returncode == 0
+        assert second.returncode == 0
+        assert db_path.exists()
+    finally:
+        cleanup_database_files(db_path)

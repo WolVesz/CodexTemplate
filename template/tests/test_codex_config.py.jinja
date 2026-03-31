@@ -1,0 +1,349 @@
+from pathlib import Path
+import tomllib
+from typing import Any, cast
+
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def read_yaml(relative_path: str) -> dict[str, Any]:
+    data = yaml.safe_load((ROOT / relative_path).read_text(encoding="utf-8"))
+    return cast(dict[str, Any], data)
+
+
+def read_text(relative_path: str) -> str:
+    return (ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_runtime_config_enforces_sqlite_authority_boundaries() -> None:
+    runtime = read_yaml(".codex/config/runtime.yaml")
+    project_surfaces = read_yaml(".codex/config/project-surfaces.yaml")["project_surfaces"]
+
+    assert runtime["scope_memory"]["backend"] == "sqlite"
+    assert runtime["scope_memory"]["path"] == "{{ scope_memory_path }}"
+    assert runtime["scope_memory"]["schema_version"] == 2
+    assert runtime["review_state"]["backend"] == "sqlite"
+    assert runtime["review_state"]["path"] == ".codex/state/review_state.sqlite"
+    assert runtime["review_state"]["schema_version"] == 1
+    assert runtime["quality"]["config_file"] == ".codex/config/quality-gates.yaml"
+    assert runtime["review"]["policy_file"] == ".codex/config/review-scope.yaml"
+    assert runtime["optimization"]["lightning_config_file"] == ".codex/config/lightning.yaml"
+    assert project_surfaces["classification_complete"] is False
+    assert project_surfaces["has_model_or_scoring_logic"] is False
+    assert project_surfaces["has_data_contract_surfaces"] is False
+
+
+def test_workflow_blocks_completion_and_references_authorities() -> None:
+    workflow = read_yaml(".codex/config/workflow.yaml")["workflow"]
+
+    assert workflow["stop_condition"] == "no_open_in_scope_findings"
+    assert workflow["review"]["policy_ref"] == ".codex/config/review-scope.yaml"
+    assert workflow["review"]["trigger_derivation_ref"] == ".codex/config/trigger-derivation.yaml"
+    assert workflow["review"]["finding_contract_ref"] == ".codex/config/finding-contract.yaml"
+    assert workflow["reviewer_output_contract"]["authority_ref"] == ".codex/config/finding-contract.yaml"
+    assert "static_file_findings" in workflow["reviewer_output_contract"]["require_line_numbers_for"]
+    assert workflow["escalation"]["artifact"] == ".codex/logs/escalation-report.md"
+    assert workflow["optimization"]["lightning_ref"] == ".codex/config/lightning.yaml"
+    assert (
+        workflow["optimization"]["cost_priority"]["primary_metric"]
+        == "llm_query_count_to_full_qa_pass"
+    )
+
+
+def test_required_reviewers_are_enabled_and_backed_by_prompts() -> None:
+    config = read_yaml(".codex/config/reviewers.yaml")
+    reviewers = config["reviewers"]
+    finding_contract = read_yaml(".codex/config/finding-contract.yaml")["finding_contract"]
+    fanout_agent_text = read_text(".codex/agents/reviewers.md")
+    review_scope = read_yaml(".codex/config/review-scope.yaml")["review_scope"]
+    known_triggers = set(review_scope["known_change_triggers"])
+
+    assert "canonical payload" in fanout_agent_text
+    assert "trigger-derivation.yaml" in fanout_agent_text
+    assert config["finding_contract_ref"] == ".codex/config/finding-contract.yaml"
+    assert config["trigger_derivation_ref"] == ".codex/config/trigger-derivation.yaml"
+    assert config["activation_semantics"]["mode"] == "any_trigger_or_matching_path"
+
+    reviewer_ids = [reviewer["id"] for reviewer in reviewers if reviewer["enabled"]]
+    assert len(reviewer_ids) == len(set(reviewer_ids))
+    assert {
+        "ai-engineer",
+        "solution-architect",
+        "data-scientist",
+        "test-engineer",
+        "reliability-engineer",
+        "security-engineer",
+    }.issubset(set(reviewer_ids))
+
+    for reviewer in reviewers:
+        prompt_path = ROOT / reviewer["prompt"]
+        assert prompt_path.exists()
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+        assert ".codex/config/finding-contract.yaml" in prompt_text
+        assert reviewer["activation_mode"] == finding_contract["activation_mode"]
+        assert reviewer["activation"]["path_globs"]
+        assert set(reviewer["activation"]["triggers_any"]).issubset(known_triggers)
+
+
+def test_control_plane_entrypoints_are_consistent() -> None:
+    agents_text = read_text("AGENTS.md")
+    manifest_text = read_text(".codex/manifest.md")
+    finding_policy = read_text(".codex/policies/finding-quality.md")
+    lightning_policy = read_text(".codex/policies/lightning-boundaries.md")
+    release_readiness = read_text(".codex/policies/release-readiness.md")
+    generated_readme = read_text("README.md")
+
+    assert ".codex/config/trigger-derivation.yaml" in agents_text
+    assert ".codex/config/trigger-derivation.yaml" in manifest_text
+    assert "README.md" in agents_text
+    assert "README.md" in manifest_text
+    assert ".codex/config/lightning.yaml" not in agents_text.split("Read these files first", 1)[1].split(
+        "Default behavior:", 1
+    )[0]
+    assert "If `.codex/config/lightning.yaml` is enabled" in agents_text
+    assert ".codex/policies/lightning-boundaries.md" in manifest_text
+    assert ".codex/policies/release-readiness.md" in manifest_text
+    assert ".codex/config/project-surfaces.yaml" in agents_text
+    assert ".codex/config/project-surfaces.yaml" in manifest_text
+    assert "canonical contract in `.codex/config/finding-contract.yaml`" in finding_policy
+    assert "must not control:" in lightning_policy
+    assert "starter `eval` and `data_contract` gates" in release_readiness
+    assert "tools/record_lightning_trace.py" in generated_readme
+    assert "Agent Lightning scaffolding for development-workflow optimization only" in generated_readme
+    assert agents_text.startswith("# Agent Operating Guide")
+
+
+def test_quality_gate_authority_matches_docs_and_ci() -> None:
+    quality_config = read_yaml(".codex/config/quality-gates.yaml")["quality_gates"]
+    quality_policy = read_text(".codex/policies/quality.md")
+    ci_text = read_text(".github/workflows/ci.yml")
+
+    assert quality_config["coverage_threshold"] == {{ coverage_threshold }}
+    assert quality_config["bootstrap"]["commands"][0] == "uv run python tools/init_scope_memory.py"
+    assert quality_config["bootstrap"]["commands"][1] == "uv run python tools/init_review_state.py"
+    assert quality_config["commands"][0] == "uv run python tools/verify_scope_memory.py"
+    assert quality_config["commands"][1] == "uv run python tools/verify_review_state.py"
+    assert quality_config["commands"][2] == "uv run python tools/run_pre_commit.py"
+    assert "uv run mypy src tests tools" in quality_config["commands"]
+    assert quality_config["lockfile_policy"]["bootstrap_command"] == "uv lock"
+    assert quality_config["evaluation_gate"]["enabled"] is True
+    assert quality_config["data_contract_gate"]["enabled"] is True
+    assert quality_config["evaluation_gate"]["command"] == "uv run python tools/run_eval_gate.py"
+    assert quality_config["data_contract_gate"]["command"] == "uv run python tools/run_data_contract_gate.py"
+    assert quality_config["commands"][-1] == "uv run python tools/run_full_test_suite.py"
+    assert quality_config["optimization_support"]["telemetry_init_command"] == (
+        "uv run python tools/init_lightning_telemetry.py"
+    )
+    assert quality_config["optimization_support"]["dataset_export_command"] == (
+        "uv run python tools/export_lightning_dataset.py"
+    )
+
+    for command in quality_config["commands"]:
+        assert command in quality_policy
+    for command in quality_config["bootstrap"]["commands"]:
+        assert command in quality_policy
+
+    assert "Bootstrap-only commands:" in quality_policy
+    assert "matrix.os" in ci_text
+    assert "python tools/install_dev_dependencies.py" in ci_text
+    assert "uv run python tools/init_scope_memory.py" in ci_text
+    assert "uv run python tools/init_review_state.py" in ci_text
+    assert "uv run python tools/run_pre_commit.py" in ci_text
+    assert "uv run mypy src tests tools" in ci_text
+    assert "uv run python tools/run_eval_gate.py" in ci_text
+    assert "uv run python tools/run_data_contract_gate.py" in ci_text
+    assert "uv run python tools/run_full_test_suite.py" in ci_text
+
+
+def test_review_scope_and_trigger_derivation_are_consistent() -> None:
+    review_scope = read_yaml(".codex/config/review-scope.yaml")["review_scope"]
+    trigger_derivation = read_yaml(".codex/config/trigger-derivation.yaml")["trigger_derivation"]
+    reviewers = read_yaml(".codex/config/reviewers.yaml")
+    workflow = read_yaml(".codex/config/workflow.yaml")["workflow"]
+    policy_text = read_text(".codex/policies/review-scope.md")
+
+    assert review_scope["authority"] == ".codex/config/review-scope.yaml"
+    assert review_scope["trigger_derivation_ref"] == ".codex/config/trigger-derivation.yaml"
+    assert set(review_scope["full_review_triggers"]).issubset(
+        set(review_scope["known_change_triggers"])
+    )
+    assert "architecture_change" in review_scope["full_review_triggers"]
+    assert "control_plane_changed" in review_scope["full_review_triggers"]
+    assert "memory_schema_changed" in review_scope["full_review_triggers"]
+    assert reviewers["trigger_authority_ref"] == ".codex/config/review-scope.yaml"
+    assert reviewers["trigger_derivation_ref"] == ".codex/config/trigger-derivation.yaml"
+    assert workflow["review"]["trigger_derivation_ref"] == ".codex/config/trigger-derivation.yaml"
+    assert "trigger-derivation.yaml" in policy_text
+
+    known_triggers = set(review_scope["known_change_triggers"])
+    for section in ("path_rules", "metadata_rules", "derived_rules"):
+        for rule in trigger_derivation[section]:
+            assert rule["trigger"] in known_triggers
+
+
+def test_lightning_config_is_bounded_and_cost_aware() -> None:
+    lightning = read_yaml(".codex/config/lightning.yaml")["lightning"]
+    telemetry = read_yaml(".codex/config/telemetry.yaml")["telemetry"]
+    workflow = read_yaml(".codex/config/workflow.yaml")["workflow"]
+    policy_text = read_text(".codex/policies/lightning-boundaries.md")
+    agent_text = read_text(".codex/agents/lightning-orchestrator.md")
+
+    assert lightning["enabled"] is False
+    assert lightning["backend"] == "agent-lightning"
+    assert lightning["policy_ref"] == ".codex/policies/lightning-boundaries.md"
+    assert lightning["telemetry_ref"] == ".codex/config/telemetry.yaml"
+    assert lightning["record_command"] == "uv run python tools/record_lightning_trace.py <payload.json>"
+    assert lightning["query_efficiency"]["primary_metric"] == "llm_query_count_to_full_qa_pass"
+    assert "false_negative_risk_proxy" in lightning["query_efficiency"]["quality_counterweights"]
+    assert "do_not_modify_scope_authority" in lightning["protected_invariants"]
+    assert "review_mode_selection" in lightning["trainable_surfaces"]
+    assert telemetry["enabled"] is False
+    assert telemetry["enabled_env_var"] == "LIGHTNING_TELEMETRY_ENABLED"
+    assert telemetry["schema_ref"] == ".codex/memory/lightning_events_schema.sql"
+    assert telemetry["record_command"] == "uv run python tools/record_lightning_trace.py <payload.json>"
+    assert telemetry["purge_command"] == "uv run python tools/purge_lightning_telemetry.py"
+    assert telemetry["capture"]["llm_query"]["enabled"] is True
+    assert telemetry["capture"]["tool_invocation"]["enabled"] is True
+    assert "change_size" in telemetry["capture"]["workflow_run"]["workload_context_allowlist"]
+    assert telemetry["capture"]["phase_transition"]["metadata_allowlist"] == []
+    assert "strategy" in telemetry["capture"]["optimization_recommendation"]["recommendation_allowlist"]
+    assert "confirmed_finding_precision" in telemetry["metrics"]["secondary"]
+    assert workflow["optimization"]["lightning_ref"] == ".codex/config/lightning.yaml"
+    assert workflow["optimization"]["telemetry_ref"] == ".codex/config/telemetry.yaml"
+    assert "scope or intent authority" in policy_text
+    assert "policy check and invariant" in agent_text
+
+
+def test_finding_contract_is_canonical() -> None:
+    finding_contract = read_yaml(".codex/config/finding-contract.yaml")["finding_contract"]
+    workflow = read_yaml(".codex/config/workflow.yaml")["workflow"]
+    reviewers = read_yaml(".codex/config/reviewers.yaml")
+
+    assert finding_contract["authority"] == ".codex/config/finding-contract.yaml"
+    assert workflow["review"]["finding_contract_ref"] == ".codex/config/finding-contract.yaml"
+    assert workflow["reviewer_output_contract"]["authority_ref"] == ".codex/config/finding-contract.yaml"
+    assert reviewers["finding_contract_ref"] == ".codex/config/finding-contract.yaml"
+    assert "required_finding_fields" not in reviewers
+    assert finding_contract["example"]["model_name"]
+    assert finding_contract["example"]["prompt_version"]
+
+
+def test_memory_and_telemetry_schemas_cover_expected_tables() -> None:
+    scope_schema_text = read_text(".codex/memory/schema.sql")
+    review_state_schema_text = read_text(".codex/memory/review_state_schema.sql")
+    lightning_schema_text = read_text(".codex/memory/lightning_events_schema.sql")
+
+    assert "CREATE TABLE IF NOT EXISTS scope_thread" in scope_schema_text
+    assert "CREATE TABLE IF NOT EXISTS scope_snapshot" in scope_schema_text
+    assert "CREATE TABLE IF NOT EXISTS scope_clause" in scope_schema_text
+    assert "review_run" not in scope_schema_text
+
+    assert "CREATE TABLE IF NOT EXISTS review_run" in review_state_schema_text
+    assert "CREATE TABLE IF NOT EXISTS review_category" in review_state_schema_text
+    assert "CREATE TABLE IF NOT EXISTS review_finding" in review_state_schema_text
+    assert "CREATE TABLE IF NOT EXISTS migration_history" in review_state_schema_text
+    assert "INSERT OR IGNORE INTO review_category" not in review_state_schema_text
+    assert "finding_key TEXT NOT NULL" in review_state_schema_text
+    assert "normalized_evidence TEXT NOT NULL" in review_state_schema_text
+
+    assert "CREATE TABLE IF NOT EXISTS lightning_run" in lightning_schema_text
+    assert "CREATE TABLE IF NOT EXISTS llm_query_event" in lightning_schema_text
+    assert "CREATE TABLE IF NOT EXISTS tool_invocation_event" in lightning_schema_text
+    assert "CREATE TABLE IF NOT EXISTS optimization_recommendation" in lightning_schema_text
+    assert "CREATE TABLE IF NOT EXISTS finding_adjudication" in lightning_schema_text
+    assert "workload_context_json TEXT NOT NULL" in lightning_schema_text
+    assert "policy_check_passed" in lightning_schema_text
+    assert "blocked_by_rule" in lightning_schema_text
+    assert "false_negative_risk_proxy" in lightning_schema_text
+
+
+def test_generated_project_metadata_and_tools_are_consistent() -> None:
+    pyproject = tomllib.loads(read_text("pyproject.toml"))
+    package_text = read_text("src/{{ package_name }}/__init__.py")
+    gitignore_text = read_text(".gitignore")
+    env_text = read_text(".env.example")
+    scope_init_text = read_text("tools/init_scope_memory.py")
+    review_init_text = read_text("tools/init_review_state.py")
+    install_dev_text = read_text("tools/install_dev_dependencies.py")
+    install_pre_commit_text = read_text("tools/install_pre_commit.py")
+    run_pre_commit_text = read_text("tools/run_pre_commit.py")
+    verify_scope_text = read_text("tools/verify_scope_memory.py")
+    verify_review_text = read_text("tools/verify_review_state.py")
+    run_eval_text = read_text("tools/run_eval_gate.py")
+    run_data_contract_text = read_text("tools/run_data_contract_gate.py")
+    run_full_suite_text = read_text("tools/run_full_test_suite.py")
+    lightning_init_text = read_text("tools/init_lightning_telemetry.py")
+    lightning_record_text = read_text("tools/record_lightning_trace.py")
+    lightning_export_text = read_text("tools/export_lightning_dataset.py")
+    lightning_purge_text = read_text("tools/purge_lightning_telemetry.py")
+    trigger_tool_text = read_text("tools/derive_review_triggers.py")
+    memory_readme_text = read_text(".codex/memory/README.md")
+    review_state_migrations_readme = read_text(".codex/memory/review_state_migrations/README.md")
+    lightning_migrations_readme = read_text(".codex/memory/lightning_migrations/README.md")
+    contracts_readme_text = read_text("contracts/README.md")
+    project_surfaces_text = read_text(".codex/config/project-surfaces.yaml")
+    eval_test_text = read_text("tests/test_eval_placeholder.py")
+    data_contract_test_text = read_text("tests/test_data_contract_placeholder.py")
+
+    assert pyproject["project"]["dynamic"] == ["version"]
+    assert pyproject["dependency-groups"]["lightning"] == ["agentlightning>=0.3.0"]
+    assert "types-PyYAML>=6.0.12.20240917" in pyproject["dependency-groups"]["dev"]
+    assert "uv>=0.8.0" in pyproject["dependency-groups"]["dev"]
+    assert pyproject["tool"]["pytest"]["ini_options"]["markers"] == [
+        "eval: model or prompt regression evaluation tests",
+        "data_contract: data schema and contract validation tests",
+    ]
+    assert pyproject["tool"]["coverage"]["run"]["source"] == ["src/{{ package_name }}"]
+    assert pyproject["tool"]["hatch"]["version"]["path"] == "src/{{ package_name }}/__init__.py"
+
+    assert '__version__ = "0.1.0"' in package_text
+    assert ".python-version" not in gitignore_text
+    assert ".codex/state/**" in gitignore_text
+    assert ".codex/exports/**" in gitignore_text
+    assert ".env.local" in gitignore_text
+    assert 'MODEL_PROVIDER_API_KEY=' in env_text
+    assert 'REVIEW_STATE_PATH=".codex/state/review_state.sqlite"' in env_text
+    assert 'LIGHTNING_TELEMETRY_ENABLED=false' in env_text
+    assert 'LIGHTNING_EVENT_DB_PATH=".codex/state/lightning_events.sqlite"' in env_text
+
+    assert "sqlite3.connect" in scope_init_text
+    assert 'PRAGMA journal_mode=WAL;' in scope_init_text
+    assert 'PRAGMA journal_mode=WAL;' in review_init_text
+    assert 'REVIEW_STATE_PATH must stay inside .codex/state/.' in review_init_text
+    assert 'apply_migrations' in review_init_text
+    assert 'sync_review_categories' in review_init_text
+    assert '"uv", "sync"' in install_dev_text or "['uv', 'sync'" in install_dev_text
+    assert 'pre_commit' in install_pre_commit_text
+    assert 'Skipping pre-commit run' in run_pre_commit_text
+    assert 'schema version is invalid' in verify_scope_text
+    assert 'Review-state categories are missing' in verify_review_text
+    assert 'tests/test_eval_placeholder.py' in run_eval_text
+    assert 'project-surfaces.yaml' in run_eval_text
+    assert 'tests/test_data_contract_placeholder.py' in run_data_contract_text
+    assert 'project-surfaces.yaml' in run_data_contract_text
+    assert 'not eval and not data_contract' in run_full_suite_text
+    assert 'PRAGMA journal_mode=WAL;' in lightning_init_text
+    assert 'record_lightning_trace.py <payload.json>' in lightning_record_text
+    assert 'AGENT_LIGHTNING_ENABLED' in lightning_record_text
+    assert 'policy_check_passed' in lightning_record_text
+    assert 'PRAGMA foreign_keys = ON;' in lightning_record_text
+    assert 'sanitize_value(row["rationale"]' in lightning_record_text
+    assert 'finding_adjudication' in lightning_export_text
+    assert 'DELETE FROM lightning_run' in lightning_purge_text
+    assert 'trigger-derivation.yaml' in trigger_tool_text
+    assert 'review_state_schema.sql' in memory_readme_text
+    assert 'forward-only SQLite migration files' in review_state_migrations_readme
+    assert 'forward-only SQLite migration files' in lightning_migrations_readme
+    assert 'contracts/schemas/' in contracts_readme_text
+    assert 'tests/evals/' in read_text('README.md')
+    assert 'classification_complete: false' in project_surfaces_text
+    assert 'has_model_or_scoring_logic: false' in project_surfaces_text
+    assert 'created `.venv`' in read_text('README.md')
+
+    assert '@pytest.mark.eval' in eval_test_text
+    assert '@pytest.mark.data_contract' in data_contract_test_text
+    assert 'full_qa_pass_integrity' in eval_test_text
+    assert 'tests/evals' in eval_test_text
+    assert 'tests/data_contracts' in data_contract_test_text

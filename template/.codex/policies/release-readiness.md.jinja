@@ -1,0 +1,15 @@
+# Release Readiness
+
+The starter `eval` and `data_contract` gates prove control-plane integrity and contract scaffolding only.
+
+They do not by themselves prove production readiness for:
+- model quality
+- prompt regressions
+- schema compatibility across real systems
+- dataset coverage or distribution-shift behavior
+
+Before the first real release of any project with substantive source code or data-contract surfaces:
+- set `.codex/config/project-surfaces.yaml` so `classification_complete` is `true` and the relevant surface flags are accurate
+- replace or extend the starter `eval` tests in `tests/evals/` with project-specific regression checks and pass/fail thresholds
+- replace or extend the starter `data_contract` tests in `tests/data_contracts/` with project-specific schema, compatibility, and fixture checks
+- document the dataset, schema, or benchmark artifacts those gates depend on

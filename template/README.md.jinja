@@ -1,0 +1,145 @@
+# {{ project_name }}
+
+{{ project_description }}
+
+## What this project enforces
+
+- scope and intent are managed through a dedicated scope agent
+- scope conversations are retained in SQLite-backed memory at `{{ scope_memory_path }}`
+- all code changes must pass local quality gates before QA review starts
+- QA review is config-driven and can fan out across specialized reviewer personas
+- every reviewer finding is triaged against scope and all in-scope findings must be fixed
+- small changes review the changed surface; milestone changes trigger full-repo review
+- branch coverage must stay at or above `{{ coverage_threshold }}`
+
+## Quickstart
+
+If you generated this project with `copier copy --trust ...`, the post-copy bootstrap should already have:
+- installed Python `{{ python_version }}` with `uv`
+- created `.venv`
+- installed the dev dependencies, including `uv` inside the environment
+- initialized the scope and review-state databases
+- installed the pre-commit hooks if this project already had a `.git` directory
+
+To verify the fresh project, run:
+
+```bash
+uv run python tools/run_full_test_suite.py
+uv run python tools/run_pre_commit.py
+```
+
+If you cloned the generated project from git on another machine, rerun bootstrap before development:
+
+```bash
+uv python install {{ python_version }}
+uv run --python {{ python_version }} python tools/install_dev_dependencies.py --bootstrap --python-version {{ python_version }}
+uv run python tools/init_scope_memory.py
+uv run python tools/init_review_state.py
+uv run python tools/install_pre_commit.py
+```
+
+If you ever need to rerun bootstrap manually:
+
+```bash
+uv python install {{ python_version }}
+uv run --python {{ python_version }} python tools/install_dev_dependencies.py --bootstrap --python-version {{ python_version }}
+uv run python tools/init_scope_memory.py
+uv run python tools/init_review_state.py
+uv run python tools/install_pre_commit.py
+```
+
+## Control Plane
+
+The repository keeps Codex-facing workflow material in `.codex/` so the agent can read project rules without ingesting unrelated source files by default.
+
+The workflow files are intentionally structured so they can be mapped into LangGraph nodes, edges, and state later without needing to rework the repo layout.
+
+- `AGENTS.md`: top-level entry point for Codex
+- `.codex/manifest.md`: control-plane index
+- `.codex/config/runtime.yaml`: runtime defaults and quality thresholds
+- `.codex/config/project-surfaces.yaml`: explicit flags for model, prompt, and data-contract surfaces
+- `.codex/config/quality-gates.yaml`: authoritative local QA commands and blocked-state handling
+- `.codex/config/review-scope.yaml`: authoritative delta/full review rules and triggers
+- `.codex/config/trigger-derivation.yaml`: deterministic mapping from change metadata to normalized review triggers
+- `.codex/config/finding-contract.yaml`: canonical reviewer finding payload and example
+- `.codex/config/workflow.yaml`: review/fix loop definition
+- `.codex/config/reviewers.yaml`: registry of enabled reviewers
+- `.codex/config/lightning.yaml`: optional Agent Lightning optimization settings and boundaries
+- `.codex/config/telemetry.yaml`: optional passive telemetry capture for optimization
+- `.codex/agents/`: agent specifications and reviewer perspectives
+- `.codex/policies/`: quality, finding-quality, optimization-boundary, and review-scope rules
+- `.codex/memory/`: SQLite scope-memory schema and conventions
+- `contracts/`: optional project-specific schemas and data-contract artifacts
+- `tools/init_scope_memory.py`: idempotent local SQLite bootstrap for scope memory
+- `tools/init_review_state.py`: idempotent local SQLite bootstrap for review runs and findings
+- `tools/verify_scope_memory.py`: non-mutating check for local scope-memory readiness
+- `tools/verify_review_state.py`: non-mutating check for local review-state readiness
+- `tools/install_dev_dependencies.py`: install or refresh dev dependencies, preferring `uv.lock` when present
+- `tools/install_pre_commit.py`: install pre-commit hooks only when this project is a git repo
+- `tools/run_pre_commit.py`: run pre-commit only when this project is a git repo
+- `tools/run_eval_gate.py`: scaffold-aware eval gate wrapper
+- `tools/run_data_contract_gate.py`: scaffold-aware data-contract gate wrapper
+- `tools/run_full_test_suite.py`: run the regular test suite without re-running eval or data-contract marker suites
+- `tools/init_lightning_telemetry.py`: optional SQLite bootstrap for optimization telemetry
+- `tools/record_lightning_trace.py`: optional telemetry ingestion hook for workflow traces
+- `tools/export_lightning_dataset.py`: optional JSONL exporter for Agent Lightning datasets
+
+## Working Agreement
+
+1. Confirm or refine scope before implementation begins.
+2. Keep implementation inside the approved scope.
+3. Run `uv lock` during bootstrap and commit `uv.lock` when dependencies change.
+4. Run local quality gates before QA review.
+5. Gather reviewer findings from all enabled reviewers.
+6. Let scope triage decide which findings are in-scope.
+7. Fix every in-scope finding and rerun the quality gates.
+8. Repeat until no in-scope findings remain.
+
+## Review Modes
+
+- `delta`: default for small, localized changes
+- `full`: required for milestone work, broad refactors, dependency changes, schema changes, or any other cross-cutting update described in `.codex/policies/review-scope.md`
+
+## Reviewer Findings
+
+Reviewers are expected to produce structured findings with exact file evidence, severity, confidence, expected versus observed behavior, and a scope anchor when they claim an issue is in-scope. The canonical payload lives in `.codex/config/finding-contract.yaml`, and the severity/evidence rubric lives in `.codex/policies/finding-quality.md`.
+
+The generated project includes real starter-level `eval` and `data_contract` gates by default. They validate control-plane integrity and contract scaffolding now, and you should replace or extend them with real prompt, model, schema, and compatibility checks as the project evolves. See `.codex/policies/release-readiness.md` for the point at which starter checks stop being sufficient.
+
+Use `tests/evals/` for project-specific eval cases and `tests/data_contracts/` for project-specific contract checks when those surfaces become real.
+
+## Optional Agent Lightning
+
+The template includes optional Agent Lightning scaffolding for development-workflow optimization only.
+
+- it may optimize execution strategy, reviewer quality, review-mode recommendation, and remediation efficiency
+- it may try to reduce total LLM queries and estimated LLM cost to reach a full QA pass
+- it must not define scope, triage scope, or change hard governance rules
+- it is future-ready scaffolding; real runtime instrumentation should call `tools/record_lightning_trace.py` or an equivalent adapter
+
+If you want to enable the optional optimization layer later:
+
+```bash
+uv sync --dev --group lightning
+uv run python tools/init_lightning_telemetry.py
+uv run python tools/record_lightning_trace.py sample_trace.json
+uv run python tools/export_lightning_dataset.py
+uv run python tools/purge_lightning_telemetry.py
+```
+
+The optimization layer is disabled by default and remains subordinate to `.codex/policies/lightning-boundaries.md`.
+
+## Adding A Reviewer
+
+1. Add a new reviewer specification under `.codex/agents/`
+2. Register it in `.codex/config/reviewers.yaml`
+3. Add or update tests that validate the registry and expected behavior
+4. Document any new full-review triggers if the reviewer is only relevant for certain change classes
+
+## Notes On `src/`
+
+This template intentionally keeps `src/` nearly empty. The generated package contains only the minimal `__init__.py` scaffold so new projects start clean.
+
+## Author
+
+`{{ author_name }}`

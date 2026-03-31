@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_python_script(script: str, **env_overrides: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.update(env_overrides)
+    return subprocess.run(
+        [sys.executable, str(ROOT / script)],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_verify_scripts_pass_after_bootstrap() -> None:
+    init_scope = run_python_script("tools/init_scope_memory.py")
+    init_review = run_python_script("tools/init_review_state.py")
+    verify_scope = run_python_script("tools/verify_scope_memory.py")
+    verify_review = run_python_script("tools/verify_review_state.py")
+
+    assert init_scope.returncode == 0
+    assert init_review.returncode == 0
+    assert verify_scope.returncode == 0
+    assert verify_review.returncode == 0
+
+
+def test_gate_wrappers_pass_on_starter_template() -> None:
+    eval_gate = run_python_script("tools/run_eval_gate.py")
+    data_contract_gate = run_python_script("tools/run_data_contract_gate.py")
+
+    assert eval_gate.returncode == 0
+    assert data_contract_gate.returncode == 0
