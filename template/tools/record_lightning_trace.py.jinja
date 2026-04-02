@@ -11,11 +11,12 @@ from typing import Any
 import yaml
 
 
-DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+DEFAULT_DB_PATH = Path(".claude/state/lightning_events.sqlite")
+SUPPORTED_STATE_PREFIXES = {(".claude", "state"), (".codex", "state")}
 
 
 def load_lightning_config(root: Path) -> dict[str, Any]:
-    config_path = root / ".codex/config/lightning.yaml"
+    config_path = root / ".claude/config/lightning.yaml"
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))["lightning"]
 
 
@@ -26,17 +27,19 @@ def resolve_state_path(path_raw: str) -> Path:
     path = Path(path_raw)
     if path.is_absolute() or ".." in path.parts:
         raise SystemExit(
-            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .claude/state/ or legacy .codex/state/."
         )
 
-    if tuple(path.parts[:2]) != (".codex", "state"):
-        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+    if tuple(path.parts[:2]) not in SUPPORTED_STATE_PREFIXES:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside .claude/state/ or legacy .codex/state/."
+        )
 
     return path
 
 
 def load_telemetry_config(root: Path) -> dict[str, Any]:
-    config_path = root / ".codex/config/telemetry.yaml"
+    config_path = root / ".claude/config/telemetry.yaml"
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))["telemetry"]
 
 
@@ -470,6 +473,7 @@ def main() -> None:
             telemetry_config,
         )
         update_derived_metrics(connection, run_id, payload)
+        connection.commit()
     finally:
         connection.close()
 

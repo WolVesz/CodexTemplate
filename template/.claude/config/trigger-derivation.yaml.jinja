@@ -1,0 +1,126 @@
+trigger_derivation:
+  authority: .claude/config/trigger-derivation.yaml
+  purpose: deterministically derive normalized review triggers from changed paths and metadata
+
+  path_rules:
+    - trigger: dependency_manifest_changed
+      matches_any:
+        - pyproject.toml
+        - requirements*.txt
+    - trigger: lockfile_changed
+      matches_any:
+        - uv.lock
+    - trigger: ci_workflow_changed
+      matches_any:
+        - .github/workflows/**
+    - trigger: prompt_or_policy_changed
+      matches_any:
+        - CLAUDE.md
+        - AGENTS.md
+        - .claude/manifest.md
+        - .codex/manifest.md
+        - .claude/agents/**
+        - .claude/policies/**
+    - trigger: control_plane_changed
+      matches_any:
+        - CLAUDE.md
+        - AGENTS.md
+        - .claude/manifest.md
+        - .codex/manifest.md
+        - .claude/config/**
+        - .claude/memory/**
+    - trigger: memory_schema_changed
+      matches_any:
+        - .claude/memory/schema.sql
+        - .claude/memory/review_state_schema.sql
+        - .claude/memory/lightning_events_schema.sql
+    - trigger: database_schema_changed
+      matches_any:
+        - migrations/**
+        - db/**
+        - database/**
+        - src/**/*schema*.sql
+    - trigger: data_contract_changed
+      matches_any:
+        - contracts/**
+        - tests/fixtures/data_contracts/**
+    - trigger: tests_changed
+      matches_any:
+        - tests/**
+    - trigger: code_changed
+      matches_any:
+        - src/**
+        - tools/**
+
+  metadata_rules:
+    - trigger: files_changed_over_threshold
+      field: files_changed
+      operator: gt
+      value: 5
+    - trigger: lines_changed_over_threshold
+      field: total_changed_lines
+      operator: gt
+      value: 300
+    - trigger: explicit_milestone_marker
+      field: labels
+      operator: contains_any
+      value:
+        - milestone
+        - release-candidate
+        - architecture_change
+
+  derived_rules:
+    - trigger: shared_interface_changed
+      when_any:
+        - src/interfaces/**
+        - contracts/**
+        - src/**/interfaces/**
+    - trigger: runtime_behavior_changed
+      when_any:
+        - tools/**
+        - src/client/**
+        - src/runtime/**
+        - src/service/**
+        - src/**/*client*
+        - src/**/*runtime*
+        - src/**/*service*
+    - trigger: architecture_change
+      when_any:
+        - src/architecture/**
+        - src/**/architecture/**
+        - .claude/config/workflow.yaml
+    - trigger: security_sensitive_change
+      when_any:
+        - .env.example
+        - src/auth/**
+        - src/security/**
+        - src/**/auth/**
+        - src/**/security/**
+    - trigger: tool_or_model_config_changed
+      when_any:
+        - .env.example
+        - .claude/config/runtime.yaml
+        - .claude/config/lightning.yaml
+    - trigger: evaluation_logic_changed
+      when_any:
+        - tests/*eval*
+        - tests/**/*eval*
+        - tests/*data_contract*
+        - tests/**/*data_contract*
+        - .claude/config/lightning.yaml
+        - .claude/config/quality-gates.yaml
+        - src/**/*feature*
+        - src/**/*inference*
+        - src/**/*metric*
+        - src/**/*model*
+        - src/**/*pipeline*
+        - src/**/*predict*
+        - src/**/*rank*
+        - src/**/*recommend*
+        - src/**/*retrieve*
+        - src/**/*score*
+        - src/**/*threshold*
+
+  default_behavior:
+    if_no_rules_match: []
+    always_sort_output: true

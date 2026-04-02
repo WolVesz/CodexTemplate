@@ -1,0 +1,46 @@
+# Agent Operating Guide
+
+Treat this repository's `.claude/` directory as the canonical project control plane.
+
+Read these files first and in this order before exploring the wider repository:
+1. `.claude/manifest.md`
+2. `.claude/config/runtime.yaml`
+3. `README.md`
+4. `.claude/config/project-surfaces.yaml`
+5. `.claude/config/quality-gates.yaml`
+6. `.claude/config/review-scope.yaml`
+7. `.claude/config/trigger-derivation.yaml`
+8. `.claude/config/finding-contract.yaml`
+9. `.claude/config/workflow.yaml`
+10. `.claude/config/reviewers.yaml`
+
+Compatibility entrypoints:
+- `AGENTS.md` forwards AGENTS-based tools into this Claude-first layout.
+- `.codex/manifest.md` forwards Codex-style control-plane discovery into `.claude/`.
+
+Default behavior:
+- Do not recursively consume the entire repository unless the task requires working on specific project files.
+- Use `.claude/agents/` only for the agent definitions relevant to the current step.
+- Treat `.claude/policies/quality.md` as mandatory before any QA review loop begins.
+- Treat `.claude/policies/review-scope.md` as the authority for deciding between delta review and full-repo review.
+- Treat `.claude/policies/finding-quality.md` as the authority for severity, evidence quality, and anti-speculation rules.
+- Treat `.claude/config/finding-contract.yaml` as the canonical payload shape for reviewer output.
+- Treat `.claude/policies/release-readiness.md` as the authority for when starter eval/data-contract checks stop being sufficient.
+- If `.claude/config/lightning.yaml` is enabled or the task is about optimization, then read `.claude/policies/lightning-boundaries.md`, `.claude/config/lightning.yaml`, and `.claude/config/telemetry.yaml` before proceeding.
+
+Required workflow:
+1. Update or confirm scope through the scope/intent agent.
+2. Implement only against the confirmed scope.
+3. Run the local quality gates defined in `.claude/config/quality-gates.yaml` before QA review.
+4. Run all enabled QA reviewers for the current review mode.
+5. Send all findings to the scope-triage agent.
+6. Fix every finding marked in-scope.
+7. Repeat the loop until no in-scope findings remain.
+
+Non-negotiable rules:
+- Small changes use delta review unless a milestone trigger is present.
+- Milestone or cross-cutting changes require a full-repo review.
+- The loop cannot end while any in-scope issue remains open.
+- Coverage must stay at or above `{{ coverage_threshold }}` with branch coverage enabled.
+- Keep runtime scope-memory artifacts out of git.
+- If a required local quality gate is blocked by the environment, capture the failure, pause the review loop, and escalate instead of guessing.

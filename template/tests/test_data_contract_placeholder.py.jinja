@@ -7,10 +7,10 @@ from pathlib import Path
 def test_data_contract_gate_validates_contract_scaffold() -> None:
     root = Path(__file__).resolve().parents[1]
     surfaces = yaml.safe_load(
-        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+        (root / ".claude/config/project-surfaces.yaml").read_text(encoding="utf-8")
     )["project_surfaces"]
     finding_contract = yaml.safe_load(
-        (root / ".codex/config/finding-contract.yaml").read_text(encoding="utf-8")
+        (root / ".claude/config/finding-contract.yaml").read_text(encoding="utf-8")
     )["finding_contract"]
 
     assert (root / "contracts/README.md").exists()
@@ -32,7 +32,7 @@ def test_data_contract_gate_validates_contract_scaffold() -> None:
 def test_data_contract_gate_requires_real_checks_when_schema_files_exist() -> None:
     root = Path(__file__).resolve().parents[1]
     surfaces = yaml.safe_load(
-        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+        (root / ".claude/config/project-surfaces.yaml").read_text(encoding="utf-8")
     )["project_surfaces"]
     src_files = [path for path in (root / "src").rglob("*.py") if path.name != "__init__.py"]
     schema_files = [
@@ -47,7 +47,7 @@ def test_data_contract_gate_requires_real_checks_when_schema_files_exist() -> No
     ]
 
     if src_files:
-        assert surfaces["classification_complete"], "Update .codex/config/project-surfaces.yaml once real code exists."
+        assert surfaces["classification_complete"], "Update .claude/config/project-surfaces.yaml once real code exists."
 
     if schema_files or surfaces["has_data_contract_surfaces"]:
         assert real_contract_tests, "Add at least one marked project-specific test under tests/data_contracts/."

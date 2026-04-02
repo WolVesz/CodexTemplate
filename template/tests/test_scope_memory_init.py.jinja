@@ -4,6 +4,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -19,7 +20,19 @@ def cleanup_database_files(db_path: Path) -> None:
     )
     for path in paths:
         if path.exists():
-            path.unlink()
+            for _ in range(20):
+                try:
+                    path.unlink()
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
+
+
+def wait_for_path(path: Path) -> None:
+    for _ in range(20):
+        if path.exists():
+            return
+        time.sleep(0.05)
 
 
 def run_init(scope_memory_path: str) -> subprocess.CompletedProcess[str]:
@@ -36,13 +49,28 @@ def run_init(scope_memory_path: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_init_scope_memory_creates_database() -> None:
-    db_path = ROOT / ".codex/state/test_scope_memory.sqlite"
+    db_path = ROOT / ".claude/state/test_scope_memory.sqlite"
     cleanup_database_files(db_path)
 
     try:
-        result = run_init(".codex/state/test_scope_memory.sqlite")
+        result = run_init(".claude/state/test_scope_memory.sqlite")
 
         assert result.returncode == 0
+        wait_for_path(db_path)
+        assert db_path.exists()
+    finally:
+        cleanup_database_files(db_path)
+
+
+def test_init_scope_memory_supports_legacy_codex_path() -> None:
+    db_path = ROOT / ".codex/state/test_scope_memory_legacy.sqlite"
+    cleanup_database_files(db_path)
+
+    try:
+        result = run_init(".codex/state/test_scope_memory_legacy.sqlite")
+
+        assert result.returncode == 0
+        wait_for_path(db_path)
         assert db_path.exists()
     finally:
         cleanup_database_files(db_path)
@@ -58,7 +86,7 @@ def test_init_scope_memory_rejects_path_traversal() -> None:
 
 
 def test_init_scope_memory_rejects_backslashes() -> None:
-    result = run_init(".codex\\state\\bad.sqlite")
+    result = run_init(".claude\\state\\bad.sqlite")
 
     assert result.returncode != 0
     assert "must use forward slashes" in result.stderr or (
@@ -67,11 +95,11 @@ def test_init_scope_memory_rejects_backslashes() -> None:
 
 
 def test_init_scope_memory_fails_on_schema_version_mismatch() -> None:
-    db_path = ROOT / ".codex/state/test_scope_memory_mismatch.sqlite"
+    db_path = ROOT / ".claude/state/test_scope_memory_mismatch.sqlite"
     cleanup_database_files(db_path)
 
     try:
-        first = run_init(".codex/state/test_scope_memory_mismatch.sqlite")
+        first = run_init(".claude/state/test_scope_memory_mismatch.sqlite")
         assert first.returncode == 0
 
         connection = sqlite3.connect(db_path)
@@ -84,7 +112,7 @@ def test_init_scope_memory_fails_on_schema_version_mismatch() -> None:
         finally:
             connection.close()
 
-        second = run_init(".codex/state/test_scope_memory_mismatch.sqlite")
+        second = run_init(".claude/state/test_scope_memory_mismatch.sqlite")
         assert second.returncode != 0
         assert "expected schema version" in second.stderr or (
             "expected schema version" in second.stdout
@@ -94,15 +122,16 @@ def test_init_scope_memory_fails_on_schema_version_mismatch() -> None:
 
 
 def test_init_scope_memory_is_idempotent() -> None:
-    db_path = ROOT / ".codex/state/test_scope_memory_repeat.sqlite"
+    db_path = ROOT / ".claude/state/test_scope_memory_repeat.sqlite"
     cleanup_database_files(db_path)
 
     try:
-        first = run_init(".codex/state/test_scope_memory_repeat.sqlite")
-        second = run_init(".codex/state/test_scope_memory_repeat.sqlite")
+        first = run_init(".claude/state/test_scope_memory_repeat.sqlite")
+        second = run_init(".claude/state/test_scope_memory_repeat.sqlite")
 
         assert first.returncode == 0
         assert second.returncode == 0
+        wait_for_path(db_path)
         assert db_path.exists()
     finally:
         cleanup_database_files(db_path)

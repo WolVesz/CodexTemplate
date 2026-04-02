@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_DB_PATH = Path("{{ scope_memory_path }}")
 EXPECTED_SCHEMA_VERSION = "2"
+SUPPORTED_STATE_PREFIXES = {(".claude", "state"), (".codex", "state")}
 
 
 def resolve_db_path(path_raw: str) -> Path:
@@ -15,10 +16,14 @@ def resolve_db_path(path_raw: str) -> Path:
 
     db_path = Path(path_raw)
     if db_path.is_absolute() or ".." in db_path.parts:
-        raise SystemExit("SCOPE_MEMORY_PATH must stay inside the project under .codex/state/.")
+        raise SystemExit(
+            "SCOPE_MEMORY_PATH must stay inside the project under .claude/state/ or legacy .codex/state/."
+        )
 
-    if tuple(db_path.parts[:2]) != (".codex", "state"):
-        raise SystemExit("SCOPE_MEMORY_PATH must stay inside .codex/state/.")
+    if tuple(db_path.parts[:2]) not in SUPPORTED_STATE_PREFIXES:
+        raise SystemExit(
+            "SCOPE_MEMORY_PATH must stay inside .claude/state/ or legacy .codex/state/."
+        )
 
     return db_path
 

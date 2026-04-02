@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_DB_PATH = Path("{{ scope_memory_path }}")
 EXPECTED_SCHEMA_VERSION = "2"
+SUPPORTED_STATE_PREFIXES = {(".claude", "state"), (".codex", "state")}
 
 
 def apply_migrations(connection: sqlite3.Connection, migrations_dir: Path) -> None:
@@ -31,8 +32,8 @@ def apply_migrations(connection: sqlite3.Connection, migrations_dir: Path) -> No
 
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
-    schema_path = root / ".codex/memory/schema.sql"
-    migrations_dir = root / ".codex/memory/migrations"
+    schema_path = root / ".claude/memory/schema.sql"
+    migrations_dir = root / ".claude/memory/migrations"
     configured_path_raw = os.environ.get("SCOPE_MEMORY_PATH", DEFAULT_DB_PATH.as_posix())
 
     if "\\" in configured_path_raw:
@@ -41,10 +42,14 @@ def main() -> None:
     configured_path = Path(configured_path_raw)
 
     if configured_path.is_absolute() or ".." in configured_path.parts:
-        raise SystemExit("SCOPE_MEMORY_PATH must stay inside the project under .codex/state/.")
+        raise SystemExit(
+            "SCOPE_MEMORY_PATH must stay inside the project under .claude/state/ or legacy .codex/state/."
+        )
 
-    if tuple(configured_path.parts[:2]) != (".codex", "state"):
-        raise SystemExit("SCOPE_MEMORY_PATH must stay inside .codex/state/.")
+    if tuple(configured_path.parts[:2]) not in SUPPORTED_STATE_PREFIXES:
+        raise SystemExit(
+            "SCOPE_MEMORY_PATH must stay inside .claude/state/ or legacy .codex/state/."
+        )
 
     db_path = root / configured_path
 
@@ -64,6 +69,7 @@ def main() -> None:
                 "Scope-memory bootstrap failed to verify the expected schema version. "
                 "Apply the matching migration before continuing."
             )
+        connection.commit()
     finally:
         connection.close()
 

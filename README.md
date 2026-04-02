@@ -1,22 +1,26 @@
-## CodexTemplate
+## ClaudeTemplate
 
-This repository is a `copier` template for Python projects that want a Codex-first control plane with strict scope tracking, reviewer-driven QA loops, and strong local quality gates.
+This repository is a `copier` template for Python projects that want a Claude-first control plane with strict scope tracking, reviewer-driven QA loops, and strong local quality gates, while still keeping AGENTS/Codex compatibility shims.
 
 The generated control plane is written to map cleanly onto a future LangGraph implementation without forcing you to ship orchestration code in `src/` on day one.
 
 What it generates:
 - a minimal `src/` package scaffold with only `__init__.py`
-- a dedicated `.codex/` control plane for agent rules, workflow policy, reviewer specs, and scope-memory conventions
+- a dedicated `.claude/` control plane for agent rules, workflow policy, reviewer specs, and scope-memory conventions
+- compatibility entrypoints through `AGENTS.md` and `.codex/manifest.md`
 - optional Agent Lightning scaffolding for optimizing development workflow without changing scope or governance authority
 - `uv`-managed Python project metadata
 - `ruff`, `mypy`, `pytest`, branch coverage enforcement, `pre-commit`, and GitHub Actions
 - a reviewer registry that is easy to extend without rewiring the rest of the project
 
 Why the layout looks this way:
-- this template repo also ships a root `AGENTS.md` and `.codex/manifest.md` so Codex has a narrow entrypoint while working on the template itself
-- generated projects keep `.codex/` as the project control plane Codex should read first
+- this template repo ships `CLAUDE.md` and `.claude/manifest.md` as the canonical entrypoints for Claude
+- it also ships `AGENTS.md` and `.codex/manifest.md` as compatibility shims for AGENTS/Codex-style tools
+- generated projects keep `.claude/` as the control plane Claude should read first
+- generated projects still include AGENTS/Codex-compatible handoff files that point back to `.claude/`
 - `src/` stays intentionally minimal because this is a starter template, not a bundled application
-- scope memory defaults to SQLite and lives under `.codex/state/`, which is ignored by git
+- scope memory defaults to SQLite and lives under `.claude/state/`, which is ignored by git
+- the tooling still accepts legacy `.codex/state/` and `.codex/exports/` paths during migration
 
 Recommended first-time path:
 
@@ -51,7 +55,8 @@ Important: Copier will write into an existing destination directory if you point
 
 The generated project includes:
 - adaptive review scope: changed files for small edits, full-repo review for milestone changes
-- a root `AGENTS.md` that directs Codex into `.codex/` instead of consuming the whole repo by default
+- a root `CLAUDE.md` that directs Claude into `.claude/` instead of consuming the whole repo by default
+- compatibility `AGENTS.md` and `.codex/manifest.md` handoffs for AGENTS/Codex-style tools
 - an opinionated README that explains the workflow and how to add reviewers
 - optional Agent Lightning telemetry and dataset-export scaffolding for improving execution, review quality, review-mode recommendation, and remediation efficiency over time
 - Copier post-copy bootstrap that installs the selected project Python, creates `.venv`, installs dev dependencies, initializes state, and installs pre-commit hooks

@@ -1,0 +1,29 @@
+# Agent Lightning Boundaries
+
+Agent Lightning is optional and subordinate to the core workflow.
+
+It may optimize only these development-workflow surfaces:
+- execution-agent strategy
+- reviewer precision and evidence quality
+- review-mode recommendation under policy constraints
+- remediation prioritization and batching
+
+It must not control:
+- scope or intent authority
+- in-scope versus out-of-scope decisions
+- hard governance rules
+- mandatory reviewer coverage in `full` mode
+- local quality-gate requirements
+
+Rules:
+- treat cost and query reduction as subordinate to completing a real full QA pass
+- never recommend skipping a reviewer or quality gate that policy requires
+- treat `.claude/config/review-scope.yaml` as final authority for review-mode eligibility
+- record when a recommendation is blocked or overridden by policy
+- record which invariant or policy clause allowed or blocked each recommendation
+- keep telemetry separate from canonical scope memory
+
+Definition of a successful optimization:
+- fewer LLM or agent queries to reach a full QA pass
+- lower estimated LLM cost to reach a full QA pass
+- no loss of reviewer coverage, finding quality, finding yield, or in-scope remediation completeness

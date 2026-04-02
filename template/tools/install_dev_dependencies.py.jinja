@@ -31,7 +31,10 @@ def main() -> None:
 
     lockfile = ROOT / "uv.lock"
     if args.bootstrap and not lockfile.exists():
-        subprocess.run(["uv", "lock"], cwd=ROOT, check=True)
+        lock_command = ["uv", "lock"]
+        if args.python_version:
+            lock_command.extend(["--python", args.python_version])
+        subprocess.run(lock_command, cwd=ROOT, check=True)
 
     command = ["uv", "sync", "--dev"]
     for group in args.group:

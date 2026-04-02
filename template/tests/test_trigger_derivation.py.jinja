@@ -15,10 +15,10 @@ SCRIPT = ROOT / "tools/derive_review_triggers.py"
 
 def test_trigger_derivation_config_has_known_triggers() -> None:
     config = yaml.safe_load(
-        (ROOT / ".codex/config/trigger-derivation.yaml").read_text(encoding="utf-8")
+        (ROOT / ".claude/config/trigger-derivation.yaml").read_text(encoding="utf-8")
     )["trigger_derivation"]
     review_scope = yaml.safe_load(
-        (ROOT / ".codex/config/review-scope.yaml").read_text(encoding="utf-8")
+        (ROOT / ".claude/config/review-scope.yaml").read_text(encoding="utf-8")
     )["review_scope"]
 
     known_triggers = set(review_scope["known_change_triggers"])

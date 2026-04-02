@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -12,12 +13,25 @@ ROOT = Path(__file__).resolve().parents[1]
 INIT_SCRIPT = ROOT / "tools/init_lightning_telemetry.py"
 RECORD_SCRIPT = ROOT / "tools/record_lightning_trace.py"
 EXPORT_SCRIPT = ROOT / "tools/export_lightning_dataset.py"
+PURGE_SCRIPT = ROOT / "tools/purge_lightning_telemetry.py"
 
 
 def cleanup_files(*paths: Path) -> None:
     for path in paths:
         if path.exists():
-            path.unlink()
+            for _ in range(20):
+                try:
+                    path.unlink()
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
+
+
+def wait_for_path(path: Path) -> None:
+    for _ in range(20):
+        if path.exists():
+            return
+        time.sleep(0.05)
 
 
 def run_script(script: Path, **env_overrides: str) -> subprocess.CompletedProcess[str]:
@@ -34,7 +48,7 @@ def run_script(script: Path, **env_overrides: str) -> subprocess.CompletedProces
 
 
 def test_init_lightning_telemetry_creates_database() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_events.sqlite"
+    db_path = ROOT / ".claude/state/test_lightning_events.sqlite"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -44,10 +58,36 @@ def test_init_lightning_telemetry_creates_database() -> None:
     try:
         result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_events.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_events.sqlite",
         )
 
         assert result.returncode == 0
+        wait_for_path(db_path)
+        assert db_path.exists()
+    finally:
+        cleanup_files(
+            db_path,
+            db_path.with_name(f"{db_path.name}-wal"),
+            db_path.with_name(f"{db_path.name}-shm"),
+        )
+
+
+def test_init_lightning_telemetry_supports_legacy_codex_path() -> None:
+    db_path = ROOT / ".codex/state/test_lightning_legacy.sqlite"
+    cleanup_files(
+        db_path,
+        db_path.with_name(f"{db_path.name}-wal"),
+        db_path.with_name(f"{db_path.name}-shm"),
+    )
+
+    try:
+        result = run_script(
+            INIT_SCRIPT,
+            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_legacy.sqlite",
+        )
+
+        assert result.returncode == 0
+        wait_for_path(db_path)
         assert db_path.exists()
     finally:
         cleanup_files(
@@ -59,7 +99,7 @@ def test_init_lightning_telemetry_creates_database() -> None:
 
 def test_init_lightning_telemetry_rejects_invalid_paths() -> None:
     traversal = run_script(INIT_SCRIPT, LIGHTNING_EVENT_DB_PATH="../bad.sqlite")
-    backslashes = run_script(INIT_SCRIPT, LIGHTNING_EVENT_DB_PATH=".codex\\state\\bad.sqlite")
+    backslashes = run_script(INIT_SCRIPT, LIGHTNING_EVENT_DB_PATH=".claude\\state\\bad.sqlite")
 
     assert traversal.returncode != 0
     assert "must stay inside the project" in traversal.stderr or (
@@ -72,7 +112,7 @@ def test_init_lightning_telemetry_rejects_invalid_paths() -> None:
 
 
 def test_init_lightning_telemetry_fails_on_schema_version_mismatch() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_mismatch.sqlite"
+    db_path = ROOT / ".claude/state/test_lightning_mismatch.sqlite"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -82,7 +122,7 @@ def test_init_lightning_telemetry_fails_on_schema_version_mismatch() -> None:
     try:
         init_result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_mismatch.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_mismatch.sqlite",
         )
         assert init_result.returncode == 0
 
@@ -98,7 +138,7 @@ def test_init_lightning_telemetry_fails_on_schema_version_mismatch() -> None:
 
         mismatch = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_mismatch.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_mismatch.sqlite",
         )
         assert mismatch.returncode != 0
         assert "expected schema version" in mismatch.stderr or (
@@ -113,8 +153,8 @@ def test_init_lightning_telemetry_fails_on_schema_version_mismatch() -> None:
 
 
 def test_export_lightning_dataset_writes_jsonl() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_export.sqlite"
-    export_path = ROOT / ".codex/exports/test_lightning_dataset.jsonl"
+    db_path = ROOT / ".claude/state/test_lightning_export.sqlite"
+    export_path = ROOT / ".claude/exports/test_lightning_dataset.jsonl"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -125,7 +165,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
     try:
         init_result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_export.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_export.sqlite",
         )
         assert init_result.returncode == 0
 
@@ -156,7 +196,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
                 {
                     "phase_id": "implementation",
                     "agent_id": "execution",
-                    "model_name": "gpt-5.4",
+                    "model_name": "claude-review-model",
                     "prompt_version": "execution@v1",
                     "query_kind": "execution",
                     "prompt_tokens": 100,
@@ -179,7 +219,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
                     "recommendation_key": "reuse-local-context",
                     "recommendation": {"strategy": "reuse-local-context"},
                     "policy_check_passed": True,
-                    "policy_check_ref": ".codex/policies/lightning-boundaries.md#rules",
+                    "policy_check_ref": ".claude/policies/lightning-boundaries.md#rules",
                     "final_decision": "applied",
                     "rationale": "Saved a second execution pass.",
                     "was_applied": True,
@@ -205,7 +245,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
             ],
         }
 
-        payload_path = ROOT / ".codex/exports/test_lightning_payload.json"
+        payload_path = ROOT / ".claude/exports/test_lightning_payload.json"
         payload_path.write_text(json.dumps(payload), encoding="utf-8")
 
         record_result = subprocess.run(
@@ -214,7 +254,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
             env={
                 **os.environ,
                 "AGENT_LIGHTNING_ENABLED": "true",
-                "LIGHTNING_EVENT_DB_PATH": ".codex/state/test_lightning_export.sqlite",
+                "LIGHTNING_EVENT_DB_PATH": ".claude/state/test_lightning_export.sqlite",
             },
             capture_output=True,
             text=True,
@@ -227,8 +267,8 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
             cwd=ROOT,
             env={
                 **os.environ,
-                "LIGHTNING_EVENT_DB_PATH": ".codex/state/test_lightning_export.sqlite",
-                "LIGHTNING_DATASET_EXPORT_PATH": ".codex/exports/test_lightning_dataset.jsonl",
+                "LIGHTNING_EVENT_DB_PATH": ".claude/state/test_lightning_export.sqlite",
+                "LIGHTNING_DATASET_EXPORT_PATH": ".claude/exports/test_lightning_dataset.jsonl",
             },
             capture_output=True,
             text=True,
@@ -236,6 +276,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
         )
 
         assert export_result.returncode == 0
+        wait_for_path(export_path)
         assert export_path.exists()
         exported = [
             json.loads(line)
@@ -245,7 +286,7 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
         assert exported[0]["cost_metrics"]["total_llm_queries"] == 1
         assert len(exported[0]["scope_thread_key"]) == 64
         assert exported[0]["workload_context"]["change_size"] == "small"
-        assert exported[0]["llm_queries"][0]["model_name"] == "gpt-5.4"
+        assert exported[0]["llm_queries"][0]["model_name"] == "claude-review-model"
         assert exported[0]["tool_invocations"][0]["tool_name"] == "read"
         assert exported[0]["quality_metrics"]["confirmed_finding_precision"] == 1.0
         assert (
@@ -263,13 +304,13 @@ def test_export_lightning_dataset_writes_jsonl() -> None:
             db_path.with_name(f"{db_path.name}-wal"),
             db_path.with_name(f"{db_path.name}-shm"),
             export_path,
-            ROOT / ".codex/exports/test_lightning_payload.json",
+            ROOT / ".claude/exports/test_lightning_payload.json",
         )
 
 
 def test_record_lightning_trace_blocks_recommendations_when_disabled() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_disabled.sqlite"
-    payload_path = ROOT / ".codex/exports/test_lightning_disabled_payload.json"
+    db_path = ROOT / ".claude/state/test_lightning_disabled.sqlite"
+    payload_path = ROOT / ".claude/exports/test_lightning_disabled_payload.json"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -280,7 +321,7 @@ def test_record_lightning_trace_blocks_recommendations_when_disabled() -> None:
     try:
         init_result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_disabled.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_disabled.sqlite",
         )
         assert init_result.returncode == 0
 
@@ -296,7 +337,7 @@ def test_record_lightning_trace_blocks_recommendations_when_disabled() -> None:
                             "surface": "execution",
                             "recommendation_key": "skip-roundtrip",
                             "policy_check_passed": True,
-                            "policy_check_ref": ".codex/policies/lightning-boundaries.md#rules",
+                            "policy_check_ref": ".claude/policies/lightning-boundaries.md#rules",
                             "final_decision": "applied",
                             "rationale": "Would skip an extra query.",
                             "was_applied": True,
@@ -312,7 +353,7 @@ def test_record_lightning_trace_blocks_recommendations_when_disabled() -> None:
             cwd=ROOT,
             env={
                 **os.environ,
-                "LIGHTNING_EVENT_DB_PATH": ".codex/state/test_lightning_disabled.sqlite",
+                "LIGHTNING_EVENT_DB_PATH": ".claude/state/test_lightning_disabled.sqlite",
                 "LIGHTNING_TELEMETRY_ENABLED": "true",
             },
             capture_output=True,
@@ -341,8 +382,8 @@ def test_record_lightning_trace_blocks_recommendations_when_disabled() -> None:
 
 
 def test_record_lightning_trace_skips_when_telemetry_and_lightning_are_disabled() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_skip.sqlite"
-    payload_path = ROOT / ".codex/exports/test_lightning_skip_payload.json"
+    db_path = ROOT / ".claude/state/test_lightning_skip.sqlite"
+    payload_path = ROOT / ".claude/exports/test_lightning_skip_payload.json"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -353,7 +394,7 @@ def test_record_lightning_trace_skips_when_telemetry_and_lightning_are_disabled(
     try:
         init_result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_skip.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_skip.sqlite",
         )
         assert init_result.returncode == 0
 
@@ -372,7 +413,7 @@ def test_record_lightning_trace_skips_when_telemetry_and_lightning_are_disabled(
         result = subprocess.run(
             [sys.executable, str(RECORD_SCRIPT), str(payload_path)],
             cwd=ROOT,
-            env={**os.environ, "LIGHTNING_EVENT_DB_PATH": ".codex/state/test_lightning_skip.sqlite"},
+            env={**os.environ, "LIGHTNING_EVENT_DB_PATH": ".claude/state/test_lightning_skip.sqlite"},
             capture_output=True,
             text=True,
             check=False,
@@ -397,8 +438,8 @@ def test_record_lightning_trace_skips_when_telemetry_and_lightning_are_disabled(
 
 
 def test_record_lightning_trace_rejects_invalid_metrics() -> None:
-    db_path = ROOT / ".codex/state/test_lightning_invalid.sqlite"
-    payload_path = ROOT / ".codex/exports/test_lightning_invalid_payload.json"
+    db_path = ROOT / ".claude/state/test_lightning_invalid.sqlite"
+    payload_path = ROOT / ".claude/exports/test_lightning_invalid_payload.json"
     cleanup_files(
         db_path,
         db_path.with_name(f"{db_path.name}-wal"),
@@ -409,7 +450,7 @@ def test_record_lightning_trace_rejects_invalid_metrics() -> None:
     try:
         init_result = run_script(
             INIT_SCRIPT,
-            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_invalid.sqlite",
+            LIGHTNING_EVENT_DB_PATH=".claude/state/test_lightning_invalid.sqlite",
         )
         assert init_result.returncode == 0
 
@@ -431,7 +472,7 @@ def test_record_lightning_trace_rejects_invalid_metrics() -> None:
             cwd=ROOT,
             env={
                 **os.environ,
-                "LIGHTNING_EVENT_DB_PATH": ".codex/state/test_lightning_invalid.sqlite",
+                "LIGHTNING_EVENT_DB_PATH": ".claude/state/test_lightning_invalid.sqlite",
                 "LIGHTNING_TELEMETRY_ENABLED": "true",
             },
             capture_output=True,
@@ -455,23 +496,32 @@ def test_record_lightning_trace_rejects_invalid_metrics() -> None:
 def test_export_lightning_dataset_rejects_invalid_state() -> None:
     bad_export = run_script(
         EXPORT_SCRIPT,
+        LIGHTNING_EVENT_DB_PATH=".claude/state/missing_lightning.sqlite",
+        LIGHTNING_DATASET_EXPORT_PATH=".claude/exports/test_lightning_dataset.jsonl",
+    )
+    legacy_export = run_script(
+        EXPORT_SCRIPT,
         LIGHTNING_EVENT_DB_PATH=".codex/state/missing_lightning.sqlite",
         LIGHTNING_DATASET_EXPORT_PATH=".codex/exports/test_lightning_dataset.jsonl",
     )
     bad_path = run_script(
         EXPORT_SCRIPT,
-        LIGHTNING_EVENT_DB_PATH=".codex/state/missing_lightning.sqlite",
+        LIGHTNING_EVENT_DB_PATH=".claude/state/missing_lightning.sqlite",
         LIGHTNING_DATASET_EXPORT_PATH="../bad.jsonl",
     )
     bad_backslashes = run_script(
         EXPORT_SCRIPT,
-        LIGHTNING_EVENT_DB_PATH=".codex/state/missing_lightning.sqlite",
-        LIGHTNING_DATASET_EXPORT_PATH=".codex\\exports\\bad.jsonl",
+        LIGHTNING_EVENT_DB_PATH=".claude/state/missing_lightning.sqlite",
+        LIGHTNING_DATASET_EXPORT_PATH=".claude\\exports\\bad.jsonl",
     )
 
     assert bad_export.returncode != 0
     assert "Initialize Lightning telemetry" in bad_export.stderr or (
         "Initialize Lightning telemetry" in bad_export.stdout
+    )
+    assert legacy_export.returncode != 0
+    assert "Initialize Lightning telemetry" in legacy_export.stderr or (
+        "Initialize Lightning telemetry" in legacy_export.stdout
     )
     assert bad_path.returncode != 0
     assert "must stay inside the project" in bad_path.stderr or (
@@ -481,3 +531,37 @@ def test_export_lightning_dataset_rejects_invalid_state() -> None:
     assert "must use forward slashes" in bad_backslashes.stderr or (
         "must use forward slashes" in bad_backslashes.stdout
     )
+
+
+def test_purge_lightning_telemetry_uses_legacy_default_export_prefix() -> None:
+    db_path = ROOT / ".codex/state/test_lightning_purge.sqlite"
+    backup_export_path = ROOT / ".codex/exports/lightning_dataset.before_purge.jsonl"
+    cleanup_files(
+        db_path,
+        db_path.with_name(f"{db_path.name}-wal"),
+        db_path.with_name(f"{db_path.name}-shm"),
+        backup_export_path,
+    )
+
+    try:
+        init_result = run_script(
+            INIT_SCRIPT,
+            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_purge.sqlite",
+        )
+        assert init_result.returncode == 0
+
+        purge_result = run_script(
+            PURGE_SCRIPT,
+            LIGHTNING_EVENT_DB_PATH=".codex/state/test_lightning_purge.sqlite",
+        )
+
+        assert purge_result.returncode == 0
+        wait_for_path(backup_export_path)
+        assert backup_export_path.exists()
+    finally:
+        cleanup_files(
+            db_path,
+            db_path.with_name(f"{db_path.name}-wal"),
+            db_path.with_name(f"{db_path.name}-shm"),
+            backup_export_path,
+        )

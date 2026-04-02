@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import yaml
@@ -44,7 +45,7 @@ EVAL_TOKENS = (
 
 
 def load_surfaces() -> dict[str, object]:
-    path = ROOT / ".codex/config/project-surfaces.yaml"
+    path = ROOT / ".claude/config/project-surfaces.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))["project_surfaces"]
 
 
@@ -67,6 +68,12 @@ def discover_eval_surface_candidates() -> list[Path]:
     return candidates
 
 
+def maybe_disable_coverage() -> list[str]:
+    if find_spec("pytest_cov") is not None:
+        return ["--no-cov"]
+    return ["-o", "addopts="]
+
+
 def main() -> None:
     surfaces = load_surfaces()
     candidates = discover_eval_surface_candidates()
@@ -75,13 +82,19 @@ def main() -> None:
         joined = ", ".join(path.as_posix() for path in candidates[:5])
         raise SystemExit(
             "Detected potential eval-relevant project surfaces but the surface flags are still false. "
-            f"Update .codex/config/project-surfaces.yaml. Examples: {joined}"
+            f"Update .claude/config/project-surfaces.yaml. Examples: {joined}"
         )
 
-    command = [sys.executable, "-m", "pytest", "tests/test_eval_placeholder.py", "--no-cov"]
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests/test_eval_placeholder.py",
+        *maybe_disable_coverage(),
+    ]
 
     if surfaces["has_model_or_scoring_logic"] or surfaces["has_prompt_logic"]:
-        command = [sys.executable, "-m", "pytest", "-m", "eval", "--no-cov"]
+        command = [sys.executable, "-m", "pytest", "-m", "eval", *maybe_disable_coverage()]
 
     raise SystemExit(subprocess.call(command, cwd=ROOT))
 

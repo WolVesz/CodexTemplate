@@ -1,17 +1,22 @@
-# Template Control Plane
+# Codex Compatibility Manifest
 
-This repository contains a Copier template whose generated project keeps its Codex-facing rules under `template/.codex/`.
+This repository is Claude-first.
 
-## Read Order
+Use these files as the compatibility handoff for Codex-style tooling:
 
-1. `AGENTS.md`
-2. `README.md`
-3. `copier.yml`
-4. `template/AGENTS.md.jinja`
-5. `template/.codex/manifest.md.jinja`
+1. `CLAUDE.md`
+2. `.claude/manifest.md`
+3. `README.md`
+4. `copier.yml`
+5. `template/CLAUDE.md.jinja`
+6. `template/.claude/manifest.md.jinja`
+7. `template/.claude/config/runtime.yaml.jinja`
+8. `template/.claude/policies/quality.md.jinja`
+9. `template/.claude/policies/review-scope.md.jinja`
+10. `template/.claude/policies/finding-quality.md.jinja`
+11. `template/.claude/policies/release-readiness.md.jinja`
 
-## Purpose
-
-- Keep the template repository itself easy for Codex to navigate.
-- Route generated-project behavior into `template/.codex/` rather than normal app code.
-- Keep `template/src/` intentionally minimal.
+Notes:
+- `.claude/` is the canonical control plane for both the template repo and generated projects.
+- `AGENTS.md` and this file exist only to preserve compatibility with AGENTS/Codex-oriented entrypoint conventions.
+- If the generated template's Lightning optimization layer is relevant, also read `template/.claude/policies/lightning-boundaries.md.jinja`, `template/.claude/config/lightning.yaml.jinja`, and `template/.claude/config/telemetry.yaml.jinja`.

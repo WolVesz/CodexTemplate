@@ -1,0 +1,39 @@
+# Review Scope Policy
+
+The authoritative machine-readable review-mode definition lives in `.claude/config/review-scope.yaml`.
+Trigger derivation rules live in `.claude/config/trigger-derivation.yaml`.
+
+## Default Mode
+
+Use `delta` review for small, localized changes.
+
+## Delta Review
+
+Review:
+- the changed files
+- directly impacted modules
+- impacted tests
+
+Use delta review when all of the following are true:
+- no more than 5 files changed
+- no more than 300 total changed lines
+- no dependency, CI, database, prompt, or policy surface changed
+- the change is not marked as a milestone, release candidate, or architectural change
+
+## Full Review
+
+Use `full` review whenever the work is a milestone or the change is broad enough that local reasoning is not sufficient.
+
+Full review triggers include:
+- more than 5 files changed
+- more than 300 total changed lines
+- `pyproject.toml`, lockfiles, or other dependency manifests changed
+- `.github/workflows/` changed
+- `.claude/` workflow, policy, or prompt files changed
+- database schemas, migrations, or shared interfaces changed
+- security-sensitive code paths changed
+- the change is explicitly labeled or described as a milestone
+
+Reviewer activation triggers should reuse the normalized trigger vocabulary in `.claude/config/review-scope.yaml` and be derived through `.claude/config/trigger-derivation.yaml`.
+
+If uncertain, prefer `full` review.

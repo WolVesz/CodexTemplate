@@ -5,8 +5,9 @@ import sqlite3
 from pathlib import Path
 
 
-DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+DEFAULT_DB_PATH = Path(".claude/state/lightning_events.sqlite")
 EXPECTED_SCHEMA_VERSION = "1"
+SUPPORTED_STATE_PREFIXES = {(".claude", "state"), (".codex", "state")}
 
 
 def apply_migrations(connection: sqlite3.Connection, migrations_dir: Path) -> None:
@@ -36,19 +37,21 @@ def resolve_db_path(path_raw: str) -> Path:
     db_path = Path(path_raw)
     if db_path.is_absolute() or ".." in db_path.parts:
         raise SystemExit(
-            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .claude/state/ or legacy .codex/state/."
         )
 
-    if tuple(db_path.parts[:2]) != (".codex", "state"):
-        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+    if tuple(db_path.parts[:2]) not in SUPPORTED_STATE_PREFIXES:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside .claude/state/ or legacy .codex/state/."
+        )
 
     return db_path
 
 
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
-    schema_path = root / ".codex/memory/lightning_events_schema.sql"
-    migrations_dir = root / ".codex/memory/lightning_migrations"
+    schema_path = root / ".claude/memory/lightning_events_schema.sql"
+    migrations_dir = root / ".claude/memory/lightning_migrations"
     configured_path = os.environ.get("LIGHTNING_EVENT_DB_PATH", DEFAULT_DB_PATH.as_posix())
     db_path = root / resolve_db_path(configured_path)
 
@@ -67,6 +70,7 @@ def main() -> None:
             raise SystemExit(
                 "Lightning telemetry bootstrap failed to verify the expected schema version."
             )
+        connection.commit()
     finally:
         connection.close()
 

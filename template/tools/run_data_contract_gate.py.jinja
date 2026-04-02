@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import yaml
@@ -33,7 +34,7 @@ DATA_CONTRACT_TOKENS = (
 
 
 def load_surfaces() -> dict[str, object]:
-    path = ROOT / ".codex/config/project-surfaces.yaml"
+    path = ROOT / ".claude/config/project-surfaces.yaml"
     return yaml.safe_load(path.read_text(encoding="utf-8"))["project_surfaces"]
 
 
@@ -60,6 +61,12 @@ def discover_contract_surface_candidates() -> list[Path]:
     return candidates
 
 
+def maybe_disable_coverage() -> list[str]:
+    if find_spec("pytest_cov") is not None:
+        return ["--no-cov"]
+    return ["-o", "addopts="]
+
+
 def main() -> None:
     surfaces = load_surfaces()
     candidates = discover_contract_surface_candidates()
@@ -68,7 +75,7 @@ def main() -> None:
         joined = ", ".join(path.as_posix() for path in candidates[:5])
         raise SystemExit(
             "Detected potential data-contract surfaces but the surface flag is still false. "
-            f"Update .codex/config/project-surfaces.yaml. Examples: {joined}"
+            f"Update .claude/config/project-surfaces.yaml. Examples: {joined}"
         )
 
     command = [
@@ -76,11 +83,18 @@ def main() -> None:
         "-m",
         "pytest",
         "tests/test_data_contract_placeholder.py",
-        "--no-cov",
+        *maybe_disable_coverage(),
     ]
 
     if surfaces["has_data_contract_surfaces"]:
-        command = [sys.executable, "-m", "pytest", "-m", "data_contract", "--no-cov"]
+        command = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-m",
+            "data_contract",
+            *maybe_disable_coverage(),
+        ]
 
     raise SystemExit(subprocess.call(command, cwd=ROOT))
 

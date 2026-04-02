@@ -7,11 +7,11 @@ import yaml
 @pytest.mark.eval
 def test_eval_gate_preserves_qa_integrity_defaults() -> None:
     root = Path(__file__).resolve().parents[1]
-    lightning = yaml.safe_load((root / ".codex/config/lightning.yaml").read_text(encoding="utf-8"))["lightning"]
+    lightning = yaml.safe_load((root / ".claude/config/lightning.yaml").read_text(encoding="utf-8"))["lightning"]
     surfaces = yaml.safe_load(
-        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+        (root / ".claude/config/project-surfaces.yaml").read_text(encoding="utf-8")
     )["project_surfaces"]
-    workflow = yaml.safe_load((root / ".codex/config/workflow.yaml").read_text(encoding="utf-8"))["workflow"]
+    workflow = yaml.safe_load((root / ".claude/config/workflow.yaml").read_text(encoding="utf-8"))["workflow"]
 
 
     assert lightning["query_efficiency"]["primary_metric"] == "llm_query_count_to_full_qa_pass"
@@ -31,7 +31,7 @@ def test_eval_gate_preserves_qa_integrity_defaults() -> None:
 def test_eval_gate_requires_real_project_evals_when_eval_surfaces_exist() -> None:
     root = Path(__file__).resolve().parents[1]
     surfaces = yaml.safe_load(
-        (root / ".codex/config/project-surfaces.yaml").read_text(encoding="utf-8")
+        (root / ".claude/config/project-surfaces.yaml").read_text(encoding="utf-8")
     )["project_surfaces"]
     src_files = list((root / "src").rglob("*.py"))
     project_code_files = [path for path in src_files if path.name != "__init__.py"]
@@ -42,7 +42,7 @@ def test_eval_gate_requires_real_project_evals_when_eval_surfaces_exist() -> Non
     ]
 
     if project_code_files:
-        assert surfaces["classification_complete"], "Update .codex/config/project-surfaces.yaml once real code exists."
+        assert surfaces["classification_complete"], "Update .claude/config/project-surfaces.yaml once real code exists."
 
     if surfaces["has_model_or_scoring_logic"] or surfaces["has_prompt_logic"]:
         assert real_eval_tests, "Add at least one marked project-specific test under tests/evals/."

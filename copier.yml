@@ -36,7 +36,7 @@ _message_after_copy: |
 project_name:
   type: str
   help: Human-friendly project name.
-  default: CodexTemplate
+  default: ClaudeTemplate
   validator: >-
     {% if '\n' in project_name or '\r' in project_name or '"' in project_name or '\\' in project_name %}
     project_name cannot contain quotes, backslashes, or newlines.
@@ -65,7 +65,7 @@ package_name:
 project_description:
   type: str
   help: One-line description for the generated project.
-  default: Scope-governed Codex project with config-driven QA review loops.
+  default: Scope-governed Claude project with config-driven QA review loops.
   validator: >-
     {% if '\n' in project_description or '\r' in project_description or '"' in project_description or '\\' in project_description %}
     project_description cannot contain quotes, backslashes, or newlines.
@@ -93,7 +93,7 @@ python_version:
 
 coverage_threshold:
   type: int
-  help: Minimum branch coverage percentage. Use 96 or higher to satisfy >95%.
+  help: Minimum branch coverage percentage. Use 96 or higher to satisfy >95% coverage.
   default: 96
   validator: >-
     {% if coverage_threshold < 96 %}
@@ -102,11 +102,11 @@ coverage_threshold:
 
 scope_memory_path:
   type: str
-  help: Relative path to the SQLite scope-memory database under `.codex/state/`.
-  default: .codex/state/scope_memory.sqlite
+  help: Relative path to the SQLite scope-memory database under `.claude/state/` by default. Legacy `.codex/state/` paths remain supported for migration.
+  default: .claude/state/scope_memory.sqlite
   validator: >-
-    {% if not (scope_memory_path | regex_search('^\.codex/state/[A-Za-z0-9._/-]+\.sqlite$')) %}
-    scope_memory_path must stay under .codex/state/, use forward slashes, and end with .sqlite.
+    {% if not (scope_memory_path | regex_search('^\.(claude|codex)/state/[A-Za-z0-9._/-]+\.sqlite$')) %}
+    scope_memory_path must stay under .claude/state/ or legacy .codex/state/, use forward slashes, and end with .sqlite.
     {% elif scope_memory_path | regex_search('(^|/)\.\.(/|$)') %}
     scope_memory_path cannot traverse outside the project root.
     {% endif %}

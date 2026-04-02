@@ -1,0 +1,88 @@
+telemetry:
+  enabled: false
+  enabled_env_var: LIGHTNING_TELEMETRY_ENABLED
+  capture_mode: passive
+  schema_ref: .claude/memory/lightning_events_schema.sql
+  event_store_path: .claude/state/lightning_events.sqlite
+  legacy_event_store_path: .codex/state/lightning_events.sqlite
+  supported_event_store_prefixes:
+    - .claude/state
+    - .codex/state
+  dataset_export_path: .claude/exports/lightning_dataset.jsonl
+  legacy_dataset_export_path: .codex/exports/lightning_dataset.jsonl
+  supported_export_prefixes:
+    - .claude/exports
+    - .codex/exports
+  before_purge_suffix: .before_purge
+  init_command: uv run python tools/init_lightning_telemetry.py
+  record_command: uv run python tools/record_lightning_trace.py <payload.json>
+  export_command: uv run python tools/export_lightning_dataset.py
+  purge_command: uv run python tools/purge_lightning_telemetry.py
+
+  redaction:
+    store_raw_prompts: false
+    store_raw_diffs: false
+    store_raw_scope_clauses: false
+    redact_env_values: true
+    hash_sensitive_inputs: true
+
+  capture:
+    workflow_run:
+      enabled: true
+      workload_context_allowlist:
+        - change_size
+        - repo_surface
+        - task_kind
+        - trigger_mix
+    phase_transition:
+      enabled: true
+      metadata_allowlist: []
+    llm_query:
+      enabled: true
+      fields:
+        - model_name
+        - prompt_version
+        - prompt_tokens
+        - completion_tokens
+        - estimated_cost_usd
+        - latency_ms
+        - cache_hit
+    tool_invocation:
+      enabled: true
+      fields:
+        - tool_name
+        - success
+        - latency_ms
+    optimization_recommendation:
+      enabled: true
+      fields:
+        - surface
+        - recommendation_key
+        - was_applied
+        - policy_blocked
+        - llm_queries_saved_estimate
+        - cost_saved_estimate_usd
+      recommendation_allowlist:
+        - strategy
+        - target_phase
+    reward_snapshot:
+      enabled: true
+
+  metrics:
+    primary:
+      - llm_query_count_to_full_qa_pass
+      - estimated_llm_cost_usd_to_full_qa_pass
+    secondary:
+      - prompt_tokens_to_full_qa_pass
+      - completion_tokens_to_full_qa_pass
+      - review_iterations_to_close_in_scope_findings
+      - duplicate_findings_per_run
+      - reopened_findings_per_run
+      - finding_yield_proxy
+      - false_negative_risk_proxy
+      - policy_compliance_rate
+      - confirmed_finding_precision
+
+  retention:
+    keep_days: 30
+    export_before_purge: true

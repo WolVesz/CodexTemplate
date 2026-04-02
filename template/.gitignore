@@ -36,7 +36,15 @@ Thumbs.db
 .env.test
 .env.*.local
 
-# Codex runtime state
+# Claude runtime state
+.claude/state/**
+!.claude/state/.gitkeep
+.claude/exports/**
+!.claude/exports/.gitkeep
+.claude/logs/**
+!.claude/logs/.gitkeep
+
+# Legacy Codex runtime state during migration
 .codex/state/**
 !.codex/state/.gitkeep
 .codex/exports/**

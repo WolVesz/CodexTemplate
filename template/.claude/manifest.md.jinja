@@ -1,0 +1,47 @@
+# Claude Control Plane
+
+`CLAUDE.md` is the canonical repository entry point. `AGENTS.md` and `.codex/manifest.md` are compatibility shims.
+
+## Read Order
+
+1. `.claude/config/runtime.yaml`
+2. `README.md`
+3. `.claude/config/project-surfaces.yaml`
+4. `.claude/config/quality-gates.yaml`
+5. `.claude/config/review-scope.yaml`
+6. `.claude/config/trigger-derivation.yaml`
+7. `.claude/config/finding-contract.yaml`
+8. `.claude/config/workflow.yaml`
+9. `.claude/config/reviewers.yaml`
+10. `.claude/policies/quality.md`
+11. `.claude/policies/review-scope.md`
+12. `.claude/policies/finding-quality.md`
+13. `.claude/policies/release-readiness.md`
+
+If Agent Lightning is enabled or the task is about optimization, then continue with:
+14. `.claude/policies/lightning-boundaries.md`
+15. `.claude/config/lightning.yaml`
+16. `.claude/config/telemetry.yaml`
+
+## Control Surfaces
+
+- `.claude/config/runtime.yaml`: project metadata, model defaults, and scope-memory defaults
+- `.claude/config/project-surfaces.yaml`: explicit declaration of whether real model, prompt, or data-contract surfaces exist yet
+- `.claude/config/quality-gates.yaml`: authoritative local QA commands, coverage, and blocked-state handling
+- `.claude/config/review-scope.yaml`: authoritative delta/full review rules and milestone triggers
+- `.claude/config/trigger-derivation.yaml`: deterministic mapping from change metadata to normalized review triggers
+- `.claude/config/finding-contract.yaml`: canonical reviewer finding payload, field semantics, and example
+- `.claude/config/workflow.yaml`: graph-friendly execution loop for scope, implementation, QA, triage, and remediation
+- `.claude/config/reviewers.yaml`: config-driven reviewer registry with activation rules
+- `.claude/config/lightning.yaml`: optional Agent Lightning optimization boundaries, objectives, and trainable surfaces
+- `.claude/config/telemetry.yaml`: passive telemetry capture rules and export paths for optimization data
+- `.claude/agents/`: detailed role definitions used by the workflow
+- `.claude/policies/`: mandatory guardrails, finding quality rules, release-readiness checks, optimization boundaries, and escalation rules
+- `.claude/memory/`: SQLite schema and retention conventions for scope memory
+
+## Design Intent
+
+- Keep Claude focused on the project control plane first.
+- Keep AGENTS/Codex compatibility without duplicating the full control plane.
+- Keep application code discovery targeted to the files relevant for the current task.
+- Preserve a durable record of scope decisions so triage can anchor every decision to explicit prior intent.

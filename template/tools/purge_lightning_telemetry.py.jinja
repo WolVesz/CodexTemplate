@@ -9,7 +9,9 @@ from pathlib import Path
 import yaml
 
 
-DEFAULT_DB_PATH = Path(".codex/state/lightning_events.sqlite")
+DEFAULT_DB_PATH = Path(".claude/state/lightning_events.sqlite")
+SUPPORTED_STATE_PREFIXES = {(".claude", "state"), (".codex", "state")}
+SUPPORTED_EXPORT_PREFIXES = {(".claude", "exports"), (".codex", "exports")}
 
 
 def resolve_state_path(path_raw: str) -> Path:
@@ -19,18 +21,50 @@ def resolve_state_path(path_raw: str) -> Path:
     path = Path(path_raw)
     if path.is_absolute() or ".." in path.parts:
         raise SystemExit(
-            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .codex/state/."
+            "LIGHTNING_EVENT_DB_PATH must stay inside the project under .claude/state/ or legacy .codex/state/."
         )
 
-    if tuple(path.parts[:2]) != (".codex", "state"):
-        raise SystemExit("LIGHTNING_EVENT_DB_PATH must stay inside .codex/state/.")
+    if tuple(path.parts[:2]) not in SUPPORTED_STATE_PREFIXES:
+        raise SystemExit(
+            "LIGHTNING_EVENT_DB_PATH must stay inside .claude/state/ or legacy .codex/state/."
+        )
 
     return path
 
 
 def load_telemetry_config(root: Path) -> dict[str, object]:
-    config_path = root / ".codex/config/telemetry.yaml"
+    config_path = root / ".claude/config/telemetry.yaml"
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))["telemetry"]
+
+
+def resolve_export_path(path_raw: str) -> Path:
+    if "\\" in path_raw:
+        raise SystemExit("LIGHTNING_DATASET_EXPORT_PATH must use forward slashes.")
+
+    path = Path(path_raw)
+    if path.is_absolute() or ".." in path.parts:
+        raise SystemExit(
+            "LIGHTNING_DATASET_EXPORT_PATH must stay inside the project under .claude/exports/ or legacy .codex/exports/."
+        )
+
+    if tuple(path.parts[:2]) not in SUPPORTED_EXPORT_PREFIXES:
+        raise SystemExit(
+            "LIGHTNING_DATASET_EXPORT_PATH must stay inside .claude/exports/ or legacy .codex/exports/."
+        )
+
+    return path
+
+
+def derive_before_purge_export_path(export_path: Path, suffix: str) -> Path:
+    return export_path.with_name(f"{export_path.stem}{suffix}{export_path.suffix}")
+
+
+def default_export_path_for_db_path(db_path: Path, telemetry: dict[str, object]) -> str:
+    if tuple(db_path.parts[:2]) == (".codex", "state"):
+        legacy_path = telemetry.get("legacy_dataset_export_path")
+        if legacy_path:
+            return str(legacy_path)
+    return str(telemetry["dataset_export_path"])
 
 
 def main() -> None:
@@ -43,14 +77,22 @@ def main() -> None:
         raise SystemExit("Initialize Lightning telemetry before purging old records.")
 
     if telemetry["retention"]["export_before_purge"]:
-        export_path = root / ".codex/exports/lightning_dataset.before_purge.jsonl"
+        export_path_raw = os.environ.get(
+            "LIGHTNING_DATASET_EXPORT_PATH",
+            default_export_path_for_db_path(db_path.relative_to(root), telemetry),
+        )
+        export_path = resolve_export_path(str(export_path_raw))
+        backup_path = derive_before_purge_export_path(
+            export_path,
+            str(telemetry.get("before_purge_suffix", ".before_purge")),
+        )
         subprocess.run(
             [sys.executable, str(root / "tools/export_lightning_dataset.py")],
             cwd=root,
             env={
                 **os.environ,
                 "LIGHTNING_EVENT_DB_PATH": db_path.relative_to(root).as_posix(),
-                "LIGHTNING_DATASET_EXPORT_PATH": export_path.relative_to(root).as_posix(),
+                "LIGHTNING_DATASET_EXPORT_PATH": backup_path.as_posix(),
             },
             check=True,
         )
@@ -99,6 +141,7 @@ def main() -> None:
             f"DELETE FROM lightning_run WHERE run_id IN ({placeholders})",
             expired_run_ids,
         )
+        connection.commit()
     finally:
         connection.close()
 
