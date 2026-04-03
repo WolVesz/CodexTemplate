@@ -15,10 +15,17 @@ This file exists as a compatibility entrypoint for AGENTS-based tools.
 7. `template/.codex/manifest.md.jinja`
 8. `template/.claude/manifest.md.jinja`
 9. `template/.claude/config/runtime.yaml.jinja`
-10. `template/.claude/policies/quality.md.jinja`
-11. `template/.claude/policies/review-scope.md.jinja`
-12. `template/.claude/policies/finding-quality.md.jinja`
-13. `template/.claude/policies/release-readiness.md.jinja`
+10. `template/.claude/config/project-surfaces.yaml.jinja`
+11. `template/.claude/config/quality-gates.yaml.jinja`
+12. `template/.claude/config/review-scope.yaml.jinja`
+13. `template/.claude/config/trigger-derivation.yaml.jinja`
+14. `template/.claude/config/finding-contract.yaml.jinja`
+15. `template/.claude/config/workflow.yaml.jinja`
+16. `template/.claude/config/reviewers.yaml.jinja`
+17. `template/.claude/policies/quality.md.jinja`
+18. `template/.claude/policies/review-scope.md.jinja`
+19. `template/.claude/policies/finding-quality.md.jinja`
+20. `template/.claude/policies/release-readiness.md.jinja`
 
 ## Compatibility Surfaces
 

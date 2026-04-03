@@ -249,6 +249,8 @@ def test_quality_gate_authority_matches_docs_and_ci() -> None:
     assert "python tools/install_dev_dependencies.py" in ci_text
     assert "uv run python tools/init_scope_memory.py" in ci_text
     assert "uv run python tools/init_review_state.py" in ci_text
+    assert "uv run python tools/verify_scope_memory.py" in ci_text
+    assert "uv run python tools/verify_review_state.py" in ci_text
     assert "uv run python tools/run_pre_commit.py" in ci_text
     assert "uv run mypy src tests tools" in ci_text
     assert "uv run python tools/run_eval_gate.py" in ci_text
@@ -283,9 +285,11 @@ def test_review_scope_and_trigger_derivation_are_consistent() -> None:
         rule for rule in trigger_derivation["path_rules"] if rule["trigger"] == "control_plane_changed"
     )
     assert "CLAUDE.md" in prompt_or_policy_rule["matches_any"]
+    assert "README.md" in prompt_or_policy_rule["matches_any"]
     assert "GEMINI.md" in prompt_or_policy_rule["matches_any"]
     assert ".codex/manifest.md" in prompt_or_policy_rule["matches_any"]
     assert "CLAUDE.md" in control_plane_rule["matches_any"]
+    assert "README.md" in control_plane_rule["matches_any"]
     assert "GEMINI.md" in control_plane_rule["matches_any"]
     assert ".codex/manifest.md" in control_plane_rule["matches_any"]
 

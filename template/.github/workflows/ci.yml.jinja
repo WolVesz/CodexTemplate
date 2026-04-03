@@ -38,6 +38,12 @@ jobs:
       - name: Initialize review state
         run: uv run python tools/init_review_state.py
 
+      - name: Verify scope memory
+        run: uv run python tools/verify_scope_memory.py
+
+      - name: Verify review state
+        run: uv run python tools/verify_review_state.py
+
       - name: Pre-commit
         run: uv run python tools/run_pre_commit.py
 

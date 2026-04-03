@@ -27,6 +27,9 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Check root entrypoint parity
+        run: python tools/check_entrypoint_parity.py
+
       - name: Generate project via helper
         run: python tools/create_project.py ../smoke-helper-project
 
@@ -40,6 +43,14 @@ jobs:
 
       - name: Verify helper bootstrap created venv
         run: python -c "from pathlib import Path; assert Path('../smoke-helper-project/.venv').exists()"
+
+      - name: Verify helper-generated scope memory
+        run: uv run python tools/verify_scope_memory.py
+        working-directory: ../smoke-helper-project
+
+      - name: Verify helper-generated review state
+        run: uv run python tools/verify_review_state.py
+        working-directory: ../smoke-helper-project
 
       - name: Run helper-generated project tests
         run: uv run python tools/run_full_test_suite.py
@@ -72,11 +83,22 @@ jobs:
       - name: Install Copier
         run: python -m pip install "copier>=9.0.0"
 
+      - name: Check root entrypoint parity
+        run: python tools/check_entrypoint_parity.py
+
       - name: Render template
         run: copier copy --defaults --trust . smoke-test-project
 
       - name: Verify bootstrap created venv
         run: python -c "from pathlib import Path; assert Path('smoke-test-project/.venv').exists()"
+
+      - name: Verify generated project scope memory
+        run: uv run python tools/verify_scope_memory.py
+        working-directory: smoke-test-project
+
+      - name: Verify generated project review state
+        run: uv run python tools/verify_review_state.py
+        working-directory: smoke-test-project
 
       - name: Run generated project quality gates
         run: uv run python tools/run_pre_commit.py
@@ -133,6 +155,9 @@ jobs:
       - name: Install Copier
         run: python -m pip install "copier>=9.0.0"
 
+      - name: Check root entrypoint parity
+        run: python tools/check_entrypoint_parity.py
+
       - name: Render template with custom answers
         run: >-
           copier copy --trust
@@ -144,11 +169,19 @@ jobs:
           -d model_provider="gemini"
           -d python_version="3.14"
           -d coverage_threshold=96
-          -d scope_memory_path=".codex/state/custom_scope_memory.sqlite"
+          -d scope_memory_path=".claude/state/custom_scope_memory.sqlite"
           . smoke-test-custom
 
       - name: Verify bootstrap created venv
         run: python -c "from pathlib import Path; assert Path('smoke-test-custom/.venv').exists()"
+
+      - name: Verify generated project scope memory
+        run: uv run python tools/verify_scope_memory.py
+        working-directory: smoke-test-custom
+
+      - name: Verify generated project review state
+        run: uv run python tools/verify_review_state.py
+        working-directory: smoke-test-custom
 
       - name: Run generated project quality gates
         run: uv run python tools/run_pre_commit.py

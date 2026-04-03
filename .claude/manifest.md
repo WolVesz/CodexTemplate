@@ -4,19 +4,25 @@ This repository contains a Copier template whose generated project keeps its Cla
 
 ## Read Order
 
-1. `CLAUDE.md`
-2. `README.md`
-3. `copier.yml`
-4. `template/CLAUDE.md.jinja`
-5. `template/GEMINI.md.jinja`
-6. `template/AGENTS.md.jinja`
-7. `template/.codex/manifest.md.jinja`
-8. `template/.claude/manifest.md.jinja`
-9. `template/.claude/config/runtime.yaml.jinja`
-10. `template/.claude/policies/quality.md.jinja`
-11. `template/.claude/policies/review-scope.md.jinja`
-12. `template/.claude/policies/finding-quality.md.jinja`
-13. `template/.claude/policies/release-readiness.md.jinja`
+1. `README.md`
+2. `copier.yml`
+3. `template/CLAUDE.md.jinja`
+4. `template/GEMINI.md.jinja`
+5. `template/AGENTS.md.jinja`
+6. `template/.codex/manifest.md.jinja`
+7. `template/.claude/manifest.md.jinja`
+8. `template/.claude/config/runtime.yaml.jinja`
+9. `template/.claude/config/project-surfaces.yaml.jinja`
+10. `template/.claude/config/quality-gates.yaml.jinja`
+11. `template/.claude/config/review-scope.yaml.jinja`
+12. `template/.claude/config/trigger-derivation.yaml.jinja`
+13. `template/.claude/config/finding-contract.yaml.jinja`
+14. `template/.claude/config/workflow.yaml.jinja`
+15. `template/.claude/config/reviewers.yaml.jinja`
+16. `template/.claude/policies/quality.md.jinja`
+17. `template/.claude/policies/review-scope.md.jinja`
+18. `template/.claude/policies/finding-quality.md.jinja`
+19. `template/.claude/policies/release-readiness.md.jinja`
 
 Compatibility entrypoints:
 - `GEMINI.md`

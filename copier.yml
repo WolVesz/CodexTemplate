@@ -114,11 +114,11 @@ coverage_threshold:
 
 scope_memory_path:
   type: str
-  help: Relative path to the SQLite scope-memory database under `.claude/state/` by default. Legacy `.codex/state/` paths remain supported for migration.
+  help: Relative path to the SQLite scope-memory database under `.claude/state/`. Legacy `.codex/state/` paths remain supported at runtime for migration, but new renders stay `.claude/`-canonical.
   default: .claude/state/scope_memory.sqlite
   validator: >-
-    {% if not (scope_memory_path | regex_search('^\.(claude|codex)/state/[A-Za-z0-9._/-]+\.sqlite$')) %}
-    scope_memory_path must stay under .claude/state/ or legacy .codex/state/, use forward slashes, and end with .sqlite.
+    {% if not (scope_memory_path | regex_search('^\.claude/state/[A-Za-z0-9._/-]+\.sqlite$')) %}
+    scope_memory_path must stay under .claude/state/, use forward slashes, and end with .sqlite.
     {% elif scope_memory_path | regex_search('(^|/)\.\.(/|$)') %}
     scope_memory_path cannot traverse outside the project root.
     {% endif %}
