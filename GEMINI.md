@@ -1,8 +1,8 @@
-# Claude Compatibility Guide
+# Gemini Compatibility Guide
 
 This repository is a Claude-first Copier template source repo.
 
-This file exists as a compatibility entrypoint for AGENTS-based tools.
+This file exists as a compatibility entrypoint for Gemini CLI context discovery.
 
 ## Canonical Read Order
 

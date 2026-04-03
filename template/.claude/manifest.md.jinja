@@ -1,6 +1,6 @@
 # Claude Control Plane
 
-`CLAUDE.md` is the canonical repository entry point. `AGENTS.md` and `.codex/manifest.md` are compatibility shims.
+`CLAUDE.md` is the canonical repository entry point. `GEMINI.md`, `AGENTS.md`, and `.codex/manifest.md` are compatibility shims that intentionally preserve heavy overlap in read order, workflow rules, and safety guidance.
 
 ## Read Order
 
@@ -42,6 +42,7 @@ If Agent Lightning is enabled or the task is about optimization, then continue w
 ## Design Intent
 
 - Keep Claude focused on the project control plane first.
-- Keep AGENTS/Codex compatibility without duplicating the full control plane.
+- Keep Gemini/AGENTS/Codex compatibility without duplicating the full control plane.
+- Keep the provider-facing entrypoints materially aligned so provider changes do not change the workflow contract.
 - Keep application code discovery targeted to the files relevant for the current task.
 - Preserve a durable record of scope decisions so triage can anchor every decision to explicit prior intent.

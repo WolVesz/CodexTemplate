@@ -62,10 +62,22 @@ package_name:
     package_name cannot be a Python keyword.
     {% endif %}
 
+model_provider:
+  type: str
+  help: Default generated runtime provider for model configuration (`anthropic` or `gemini`). Codex/OpenAI remains compatibility-only.
+  choices:
+    - anthropic
+    - gemini
+  default: anthropic
+  validator: >-
+    {% if model_provider not in ['anthropic', 'gemini'] %}
+    model_provider must be either anthropic or gemini.
+    {% endif %}
+
 project_description:
   type: str
   help: One-line description for the generated project.
-  default: Scope-governed Claude project with config-driven QA review loops.
+  default: Scope-governed AI project with config-driven QA review loops.
   validator: >-
     {% if '\n' in project_description or '\r' in project_description or '"' in project_description or '\\' in project_description %}
     project_description cannot contain quotes, backslashes, or newlines.

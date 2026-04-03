@@ -6,6 +6,18 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_PROVIDER_NAME = "{{ model_provider }}"
+EXPECTED_PROVIDER_API_KEY_ENV_VAR = "{% if model_provider == 'anthropic' %}ANTHROPIC_API_KEY{% else %}GEMINI_API_KEY{% endif %}"
+EXPECTED_PROVIDER_API_KEY_FALLBACKS = {{ ["MODEL_PROVIDER_API_KEY"] if model_provider == "anthropic" else ["GOOGLE_API_KEY", "MODEL_PROVIDER_API_KEY"] }}
+EXPECTED_DEFAULT_MODEL_ENV_VAR = "{% if model_provider == 'anthropic' %}CLAUDE_DEFAULT_MODEL{% else %}GEMINI_DEFAULT_MODEL{% endif %}"
+EXPECTED_DEFAULT_MODEL_FALLBACKS = {{ ["GEMINI_DEFAULT_MODEL", "CODEX_DEFAULT_MODEL"] if model_provider == "anthropic" else ["CLAUDE_DEFAULT_MODEL", "CODEX_DEFAULT_MODEL"] }}
+EXPECTED_SCOPE_MODEL_ENV_VAR = "{% if model_provider == 'anthropic' %}CLAUDE_SCOPE_MODEL{% else %}GEMINI_SCOPE_MODEL{% endif %}"
+EXPECTED_SCOPE_MODEL_FALLBACKS = {{ ["GEMINI_SCOPE_MODEL", "CODEX_SCOPE_MODEL"] if model_provider == "anthropic" else ["CLAUDE_SCOPE_MODEL", "CODEX_SCOPE_MODEL"] }}
+EXPECTED_EXECUTION_MODEL_ENV_VAR = "{% if model_provider == 'anthropic' %}CLAUDE_EXECUTION_MODEL{% else %}GEMINI_EXECUTION_MODEL{% endif %}"
+EXPECTED_EXECUTION_MODEL_FALLBACKS = {{ ["GEMINI_EXECUTION_MODEL", "CODEX_EXECUTION_MODEL"] if model_provider == "anthropic" else ["CLAUDE_EXECUTION_MODEL", "CODEX_EXECUTION_MODEL"] }}
+EXPECTED_REVIEW_MODEL_ENV_VAR = "{% if model_provider == 'anthropic' %}CLAUDE_REVIEW_MODEL{% else %}GEMINI_REVIEW_MODEL{% endif %}"
+EXPECTED_REVIEW_MODEL_FALLBACKS = {{ ["GEMINI_REVIEW_MODEL", "CODEX_REVIEW_MODEL"] if model_provider == "anthropic" else ["CLAUDE_REVIEW_MODEL", "CODEX_REVIEW_MODEL"] }}
+EXPECTED_PROVIDER_LABEL = "{% if model_provider == 'anthropic' %}Anthropic Claude{% else %}Google Gemini{% endif %}"
 
 
 def read_yaml(relative_path: str) -> dict[str, Any]:
@@ -15,6 +27,15 @@ def read_yaml(relative_path: str) -> dict[str, Any]:
 
 def read_text(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def extract_section(text: str, heading: str) -> str:
+    start_marker = f"## {heading}\n"
+    start = text.index(start_marker)
+    next_heading = text.find("\n## ", start + len(start_marker))
+    if next_heading == -1:
+        next_heading = len(text)
+    return text[start:next_heading].strip()
 
 
 def test_runtime_config_enforces_sqlite_authority_boundaries() -> None:
@@ -36,16 +57,30 @@ def test_runtime_config_enforces_sqlite_authority_boundaries() -> None:
         ".codex/state",
     ]
     assert runtime["review_state"]["schema_version"] == 1
-    assert runtime["models"]["provider"]["name"] == "anthropic"
-    assert runtime["models"]["provider"]["api_key_env_var"] == "ANTHROPIC_API_KEY"
-    assert runtime["models"]["provider"]["compatibility_api_key_env_vars"] == [
-        "MODEL_PROVIDER_API_KEY"
-    ]
-    assert runtime["models"]["default"]["env_var"] == "CLAUDE_DEFAULT_MODEL"
-    assert runtime["models"]["default"]["fallback_env_vars"] == ["CODEX_DEFAULT_MODEL"]
-    assert runtime["models"]["scope"]["env_var"] == "CLAUDE_SCOPE_MODEL"
-    assert runtime["models"]["execution"]["env_var"] == "CLAUDE_EXECUTION_MODEL"
-    assert runtime["models"]["review"]["env_var"] == "CLAUDE_REVIEW_MODEL"
+    assert runtime["compatibility"]["canonical_control_plane_dir"] == ".claude"
+    assert runtime["compatibility"]["provider_entrypoints"] == {
+        "canonical": "CLAUDE.md",
+        "gemini": "GEMINI.md",
+        "agents": "AGENTS.md",
+        "codex": ".codex/manifest.md",
+    }
+    assert runtime["compatibility"]["codex_openai"]["support_mode"] == (
+        "control_plane_and_model_alias_only"
+    )
+    assert runtime["compatibility"]["codex_openai"]["runtime_provider_supported"] is False
+    assert runtime["compatibility"]["codex_openai"]["model_alias_env_prefix"] == "CODEX_"
+    assert runtime["models"]["provider"]["name"] == EXPECTED_PROVIDER_NAME
+    assert runtime["models"]["provider"]["supported"] == ["anthropic", "gemini"]
+    assert runtime["models"]["provider"]["api_key_env_var"] == EXPECTED_PROVIDER_API_KEY_ENV_VAR
+    assert runtime["models"]["provider"]["compatibility_api_key_env_vars"] == EXPECTED_PROVIDER_API_KEY_FALLBACKS
+    assert runtime["models"]["default"]["env_var"] == EXPECTED_DEFAULT_MODEL_ENV_VAR
+    assert runtime["models"]["default"]["fallback_env_vars"] == EXPECTED_DEFAULT_MODEL_FALLBACKS
+    assert runtime["models"]["scope"]["env_var"] == EXPECTED_SCOPE_MODEL_ENV_VAR
+    assert runtime["models"]["scope"]["fallback_env_vars"] == EXPECTED_SCOPE_MODEL_FALLBACKS
+    assert runtime["models"]["execution"]["env_var"] == EXPECTED_EXECUTION_MODEL_ENV_VAR
+    assert runtime["models"]["execution"]["fallback_env_vars"] == EXPECTED_EXECUTION_MODEL_FALLBACKS
+    assert runtime["models"]["review"]["env_var"] == EXPECTED_REVIEW_MODEL_ENV_VAR
+    assert runtime["models"]["review"]["fallback_env_vars"] == EXPECTED_REVIEW_MODEL_FALLBACKS
     assert runtime["quality"]["config_file"] == ".claude/config/quality-gates.yaml"
     assert runtime["review"]["policy_file"] == ".claude/config/review-scope.yaml"
     assert runtime["optimization"]["lightning_config_file"] == ".claude/config/lightning.yaml"
@@ -114,6 +149,7 @@ def test_required_reviewers_are_enabled_and_backed_by_prompts() -> None:
 
 def test_control_plane_entrypoints_are_consistent() -> None:
     claude_text = read_text("CLAUDE.md")
+    gemini_text = read_text("GEMINI.md")
     agents_text = read_text("AGENTS.md")
     manifest_text = read_text(".claude/manifest.md")
     codex_manifest_text = read_text(".codex/manifest.md")
@@ -123,9 +159,18 @@ def test_control_plane_entrypoints_are_consistent() -> None:
     generated_readme = read_text("README.md")
 
     assert claude_text.startswith("# Agent Operating Guide")
+    assert gemini_text.startswith("# Gemini Compatibility Guide")
     assert agents_text.startswith("# Claude Compatibility Guide")
+    assert codex_manifest_text.startswith("# Codex Compatibility Manifest")
     assert ".claude/config/trigger-derivation.yaml" in claude_text
     assert ".claude/config/trigger-derivation.yaml" in manifest_text
+    assert ".claude/config/runtime.yaml" in gemini_text
+    assert ".claude/policies/quality.md" in gemini_text
+    assert ".claude/policies/review-scope.md" in gemini_text
+    assert ".claude/policies/finding-quality.md" in gemini_text
+    assert ".claude/policies/release-readiness.md" in gemini_text
+    assert "CLAUDE.md" in gemini_text
+    assert ".claude/manifest.md" in gemini_text
     assert ".claude/config/runtime.yaml" in agents_text
     assert ".claude/policies/quality.md" in agents_text
     assert ".claude/policies/review-scope.md" in agents_text
@@ -139,6 +184,7 @@ def test_control_plane_entrypoints_are_consistent() -> None:
     assert ".claude/policies/review-scope.md" in codex_manifest_text
     assert ".claude/policies/finding-quality.md" in codex_manifest_text
     assert ".claude/policies/release-readiness.md" in codex_manifest_text
+    assert "GEMINI.md" in codex_manifest_text
     assert "README.md" in claude_text
     assert "README.md" in manifest_text
     assert "If `.claude/config/lightning.yaml` is enabled" in claude_text
@@ -151,8 +197,21 @@ def test_control_plane_entrypoints_are_consistent() -> None:
     assert "starter `eval` and `data_contract` gates" in release_readiness
     assert "tools/record_lightning_trace.py" in generated_readme
     assert "CLAUDE.md" in generated_readme
+    assert "GEMINI.md" in generated_readme
     assert "AGENTS.md" in generated_readme
     assert ".codex/manifest.md" in generated_readme
+
+    shared_headings = (
+        "Canonical Read Order",
+        "Compatibility Surfaces",
+        "Default Behavior",
+        "Required Workflow",
+        "Non-Negotiable Rules",
+    )
+    provider_entrypoint_texts = (claude_text, gemini_text, agents_text, codex_manifest_text)
+    for heading in shared_headings:
+        sections = {extract_section(text, heading) for text in provider_entrypoint_texts}
+        assert len(sections) == 1, heading
 
 
 def test_quality_gate_authority_matches_docs_and_ci() -> None:
@@ -224,8 +283,10 @@ def test_review_scope_and_trigger_derivation_are_consistent() -> None:
         rule for rule in trigger_derivation["path_rules"] if rule["trigger"] == "control_plane_changed"
     )
     assert "CLAUDE.md" in prompt_or_policy_rule["matches_any"]
+    assert "GEMINI.md" in prompt_or_policy_rule["matches_any"]
     assert ".codex/manifest.md" in prompt_or_policy_rule["matches_any"]
     assert "CLAUDE.md" in control_plane_rule["matches_any"]
+    assert "GEMINI.md" in control_plane_rule["matches_any"]
     assert ".codex/manifest.md" in control_plane_rule["matches_any"]
 
     known_triggers = set(review_scope["known_change_triggers"])
@@ -379,8 +440,12 @@ def test_generated_project_metadata_and_tools_are_consistent() -> None:
     assert ".codex/exports/**" in gitignore_text
     assert ".env.local" in gitignore_text
     assert "ANTHROPIC_API_KEY=" in env_text
+    assert "GEMINI_API_KEY=" in env_text
+    assert "GOOGLE_API_KEY=" in env_text
     assert "MODEL_PROVIDER_API_KEY=" in env_text
+    assert "Codex/OpenAI compatibility here is control-plane plus `CODEX_*` model-alias support" in env_text
     assert "CLAUDE_DEFAULT_MODEL=" in env_text
+    assert "GEMINI_DEFAULT_MODEL=" in env_text
     assert "CODEX_DEFAULT_MODEL=" in env_text
     assert 'REVIEW_STATE_PATH=".claude/state/review_state.sqlite"' in env_text
     assert "LIGHTNING_TELEMETRY_ENABLED=false" in env_text
@@ -423,7 +488,12 @@ def test_generated_project_metadata_and_tools_are_consistent() -> None:
     assert "contracts/schemas/" in contracts_readme_text
     assert "tests/evals/" in generated_readme
     assert "CLAUDE.md" in generated_readme
+    assert "GEMINI.md" in generated_readme
+    assert "AGENTS.md" in generated_readme
     assert ".codex/manifest.md" in generated_readme
+    assert EXPECTED_PROVIDER_LABEL in generated_readme
+    assert "Codex/OpenAI compatibility in this template is control-plane and `CODEX_*` model-alias support" in generated_readme
+    assert "provider-facing entrypoints `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`, and `.codex/manifest.md` intentionally share the same read order" in generated_readme
     assert "classification_complete: false" in project_surfaces_text
     assert "has_model_or_scoring_logic: false" in project_surfaces_text
     assert "created `.venv`" in generated_readme

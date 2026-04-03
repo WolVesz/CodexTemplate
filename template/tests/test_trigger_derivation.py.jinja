@@ -29,7 +29,13 @@ def test_trigger_derivation_config_has_known_triggers() -> None:
 
 def test_trigger_derivation_script_emits_expected_triggers() -> None:
     payload = {
-        "changed_paths": ["uv.lock", ".github/workflows/ci.yml", "contracts/schema.json", "db/schema.sql"],
+        "changed_paths": [
+            "uv.lock",
+            ".github/workflows/ci.yml",
+            "contracts/schema.json",
+            "db/schema.sql",
+            "GEMINI.md",
+        ],
         "metadata": {"files_changed": 7, "total_changed_lines": 420, "labels": ["milestone"]},
     }
 
@@ -52,6 +58,8 @@ def test_trigger_derivation_script_emits_expected_triggers() -> None:
         "ci_workflow_changed",
         "data_contract_changed",
         "database_schema_changed",
+        "prompt_or_policy_changed",
+        "control_plane_changed",
         "files_changed_over_threshold",
         "lines_changed_over_threshold",
         "explicit_milestone_marker",

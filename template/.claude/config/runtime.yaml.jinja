@@ -35,15 +35,38 @@ review_state:
   journaling_mode: wal
   write_strategy: single-writer
 
+compatibility:
+  canonical_control_plane_dir: .claude
+  provider_entrypoints:
+    canonical: CLAUDE.md
+    gemini: GEMINI.md
+    agents: AGENTS.md
+    codex: .codex/manifest.md
+  codex_openai:
+    support_mode: control_plane_and_model_alias_only
+    runtime_provider_supported: false
+    model_alias_env_prefix: CODEX_
+
 models:
   provider:
-    name: anthropic
-    api_key_env_var: ANTHROPIC_API_KEY
+    name: {{ model_provider }}
+    supported:
+      - anthropic
+      - gemini
+    api_key_env_var: {% if model_provider == "anthropic" %}ANTHROPIC_API_KEY{% else %}GEMINI_API_KEY{% endif %}
     compatibility_api_key_env_vars:
+{% if model_provider == "gemini" %}
+      - GOOGLE_API_KEY
+{% endif %}
       - MODEL_PROVIDER_API_KEY
   default:
-    env_var: CLAUDE_DEFAULT_MODEL
+    env_var: {% if model_provider == "anthropic" %}CLAUDE_DEFAULT_MODEL{% else %}GEMINI_DEFAULT_MODEL{% endif %}
     fallback_env_vars:
+{% if model_provider == "anthropic" %}
+      - GEMINI_DEFAULT_MODEL
+{% else %}
+      - CLAUDE_DEFAULT_MODEL
+{% endif %}
       - CODEX_DEFAULT_MODEL
     temperature: 0.0
     max_tokens: 4000
@@ -51,18 +74,33 @@ models:
     retries: 2
     structured_output: true
   scope:
-    env_var: CLAUDE_SCOPE_MODEL
+    env_var: {% if model_provider == "anthropic" %}CLAUDE_SCOPE_MODEL{% else %}GEMINI_SCOPE_MODEL{% endif %}
     fallback_env_vars:
+{% if model_provider == "anthropic" %}
+      - GEMINI_SCOPE_MODEL
+{% else %}
+      - CLAUDE_SCOPE_MODEL
+{% endif %}
       - CODEX_SCOPE_MODEL
     inherits: default
   execution:
-    env_var: CLAUDE_EXECUTION_MODEL
+    env_var: {% if model_provider == "anthropic" %}CLAUDE_EXECUTION_MODEL{% else %}GEMINI_EXECUTION_MODEL{% endif %}
     fallback_env_vars:
+{% if model_provider == "anthropic" %}
+      - GEMINI_EXECUTION_MODEL
+{% else %}
+      - CLAUDE_EXECUTION_MODEL
+{% endif %}
       - CODEX_EXECUTION_MODEL
     inherits: default
   review:
-    env_var: CLAUDE_REVIEW_MODEL
+    env_var: {% if model_provider == "anthropic" %}CLAUDE_REVIEW_MODEL{% else %}GEMINI_REVIEW_MODEL{% endif %}
     fallback_env_vars:
+{% if model_provider == "anthropic" %}
+      - GEMINI_REVIEW_MODEL
+{% else %}
+      - CLAUDE_REVIEW_MODEL
+{% endif %}
       - CODEX_REVIEW_MODEL
     inherits: default
 

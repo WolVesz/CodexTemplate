@@ -54,7 +54,14 @@ The repository keeps Claude-facing workflow material in `.claude/` so the agent 
 
 The workflow files are intentionally structured so they can be mapped into LangGraph nodes, edges, and state later without needing to rework the repo layout.
 
+This project was rendered with `{{ model_provider }}` as the default runtime provider, so `.claude/config/runtime.yaml` points first at {% if model_provider == "anthropic" %}Anthropic Claude{% else %}Google Gemini{% endif %} credentials and model aliases while still preserving Claude/Codex/Gemini compatibility entrypoints.
+
+Codex/OpenAI compatibility in this template is control-plane and `CODEX_*` model-alias support, not a third generated runtime provider.
+
+The provider-facing entrypoints `CLAUDE.md`, `GEMINI.md`, `AGENTS.md`, and `.codex/manifest.md` intentionally share the same read order, workflow loop, and non-negotiable rules so provider changes do not change the project contract.
+
 - `CLAUDE.md`: canonical entry point for Claude-first tooling
+- `GEMINI.md`: compatibility entry point for Gemini CLI context discovery
 - `AGENTS.md`: compatibility entry point for AGENTS-based tooling
 - `.claude/manifest.md`: canonical control-plane index
 - `.codex/manifest.md`: compatibility handoff for Codex-style discovery
@@ -107,6 +114,8 @@ The workflow files are intentionally structured so they can be mapped into LangG
 Reviewers are expected to produce structured findings with exact file evidence, severity, confidence, expected versus observed behavior, and a scope anchor when they claim an issue is in-scope. The canonical payload lives in `.claude/config/finding-contract.yaml`, and the severity/evidence rubric lives in `.claude/policies/finding-quality.md`.
 
 The generated project includes real starter-level `eval` and `data_contract` gates by default. They validate control-plane integrity and contract scaffolding now, and you should replace or extend them with real prompt, model, schema, and compatibility checks as the project evolves. See `.claude/policies/release-readiness.md` for the point at which starter checks stop being sufficient.
+
+If you use Gemini CLI, keep `GEMINI.md` at the repo root so Gemini can discover the canonical `.claude/` control plane automatically.
 
 Use `tests/evals/` for project-specific eval cases and `tests/data_contracts/` for project-specific contract checks when those surfaces become real.
 
